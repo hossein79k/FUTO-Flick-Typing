@@ -90,7 +90,9 @@ import org.jetbrains.annotations.NotNull;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnull;
@@ -110,6 +112,7 @@ public class LatinIMELegacy implements KeyboardActionListener,
     
     private final InputMethodService mInputMethodService;
     private final IMEManager mImeManager;
+    private Map<Integer, String> mFlickSuggestions = Collections.emptyMap();
 
     static final String TAG = LatinIMELegacy.class.getSimpleName();
     private static final boolean TRACE = false;
@@ -348,9 +351,20 @@ public class LatinIMELegacy implements KeyboardActionListener,
 
     }
 
+    public void setFlickSuggestions(@Nullable final Map<Integer, String> suggestions) {
+        mFlickSuggestions = suggestions == null
+                ? Collections.emptyMap()
+                : new java.util.HashMap<>(suggestions);
+        final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
+        if (mainKeyboardView != null) {
+            mainKeyboardView.setFlickSuggestions(mFlickSuggestions);
+        }
+    }
+
     public void updateMainKeyboardViewSettings() {
         final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
         SettingsValues currentSettingsValues = mSettings.getCurrent();
+        mainKeyboardView.setFlickSuggestions(mFlickSuggestions);
 
         mainKeyboardView.setImeAllowsGestureInput(
                 mImeManager.getActiveIME(currentSettingsValues).isGestureHandlingAvailable());
@@ -370,6 +384,7 @@ public class LatinIMELegacy implements KeyboardActionListener,
         final KeyboardSwitcher switcher = mKeyboardSwitcher;
         switcher.updateKeyboardTheme(mDisplayContext);
         final MainKeyboardView mainKeyboardView = switcher.getMainKeyboardView();
+        mainKeyboardView.setFlickSuggestions(mFlickSuggestions);
         // If we are starting input in a different text field from before, we'll have to reload
         // settings, so currentSettingsValues can't be final.
         SettingsValues currentSettingsValues = mSettings.getCurrent();

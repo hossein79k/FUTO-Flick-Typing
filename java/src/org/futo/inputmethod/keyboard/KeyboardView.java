@@ -42,8 +42,10 @@ import org.futo.inputmethod.latin.uix.theme.KeyDrawingConfiguration;
 import org.futo.inputmethod.latin.uix.theme.KeyOutline;
 import org.futo.inputmethod.latin.utils.TypefaceUtils;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -125,6 +127,7 @@ public class KeyboardView extends View {
     @Nonnull
     private final Paint mPaint = new Paint();
     private final Paint.FontMetrics mFontMetrics = new Paint.FontMetrics();
+    private Map<Integer, String> mFlickSuggestions = new HashMap<>();
 
     public KeyboardView(final Context context, final AttributeSet attrs) {
         this(context, attrs, R.attr.keyboardViewStyle);
@@ -212,6 +215,7 @@ public class KeyboardView extends View {
 
         mKeyDrawParams.updateParams(keyWidth, Math.min(keyWidth, keyHeight), mKeyVisualAttributes);
         mKeyDrawParams.updateParams(keyWidth, Math.min(keyWidth, keyHeight), keyboard.mKeyVisualAttributes);
+        applyFlickSuggestions();
         invalidateAllKeys();
         requestLayout();
     }
@@ -224,6 +228,33 @@ public class KeyboardView extends View {
     @Nullable
     public Keyboard getKeyboard() {
         return mKeyboard;
+    }
+
+    /**
+     * Updates live on-key word predictions. The map is keyed by the Unicode code point of the
+     * next letter (lowercase where the script has case), and the value is the complete word.
+     */
+    public void setFlickSuggestions(@Nullable final Map<Integer, String> suggestions) {
+        mFlickSuggestions = suggestions == null
+                ? new HashMap<>()
+                : new HashMap<>(suggestions);
+        applyFlickSuggestions();
+    }
+
+    private void applyFlickSuggestions() {
+        final Keyboard keyboard = getKeyboard();
+        if (keyboard == null) {
+            return;
+        }
+
+        for (final Key key : keyboard.getSortedKeys()) {
+            final int code = key.getCode();
+            final String prediction = Character.isLetter(code)
+                    ? mFlickSuggestions.get(Character.toLowerCase(code))
+                    : null;
+            key.setFlickPrediction(prediction);
+        }
+        invalidateAllKeys();
     }
 
     protected float getVerticalCorrection() {
@@ -470,7 +501,10 @@ public class KeyboardView extends View {
 
             // Vertical label text alignment.
             labelBaseline = centerY + labelCharHeight / 2.0f;
-
+            if (key.getHasFlickPrediction()) {
+                // Reserve a little room at the top of the key for the live word prediction.
+                labelBaseline += kdc.getHintSize() * 0.35f;
+            }
 
             if(kdc.getCenteredHint() && kdc.getHintLabel() != null && !key.getHasHintLabel() && !key.getHasShiftedLetterHint()) {
                 labelBaseline += kdc.getTextSize() * 0.1f;
@@ -591,6 +625,35 @@ public class KeyboardView extends View {
 
             hintIcon.setTint(kdc.getHintColor());
             drawIcon(canvas, hintIcon, hintX, hintY, iconWidth, iconHeight);
+        }
+
+        // Draw the BlackBerry-style on-key prediction above the primary letter.
+        final String flickPrediction = key.getFlickPrediction();
+        if (flickPrediction != null && !flickPrediction.isEmpty()) {
+            String displayPrediction = flickPrediction;
+            paint.setTypeface(kdc.getHintTypeface());
+            paint.setTextSize(Math.max(7.0f, kdc.getHintSize() * 0.78f));
+            paint.setTextAlign(Align.CENTER);
+            paint.setColor(kdc.getHintColor());
+            paint.clearShadowLayer();
+
+            final float maxPredictionWidth = keyWidth * 0.88f;
+            float predictionWidth = paint.measureText(displayPrediction);
+            if (predictionWidth > maxPredictionWidth * 1.25f && displayPrediction.length() > 7) {
+                displayPrediction = displayPrediction.substring(0, 6) + "…";
+                predictionWidth = paint.measureText(displayPrediction);
+            }
+            if (predictionWidth > maxPredictionWidth && predictionWidth > 0.0f) {
+                paint.setTextScaleX(maxPredictionWidth / predictionWidth);
+            }
+
+            final float predictionBaseline = Math.max(
+                    -paint.ascent() + keyHintPaddingY * 0.35f,
+                    keyHeight * 0.22f
+            );
+            canvas.drawText(displayPrediction, 0, displayPrediction.length(),
+                    centerX, predictionBaseline, paint);
+            paint.setTextScaleX(1.0f);
         }
 
         // Draw key icon.

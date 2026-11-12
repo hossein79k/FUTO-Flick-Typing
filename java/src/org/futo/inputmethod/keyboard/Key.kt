@@ -367,8 +367,9 @@ data class Key(
     fun selectBackground(provider: DynamicThemeProvider): Drawable? {
         return provider.getKeyStyleDescriptor(visualStyle).let { style ->
             when {
-                mPressed && hasFlick -> run {
+                mPressed && hasFlick && mFlickDirection != null -> run {
                     style.backgroundDrawableFlicking?.get(mFlickDirection)
+                        ?: style.backgroundDrawablePressed
                 }
 
                 mPressed -> style.backgroundDrawablePressed
@@ -423,7 +424,8 @@ data class Key(
     val previewLabel: String?
         get() = when {
             isShiftedLetterActivated -> hintLabel
-            mPressed && hasFlick && (mFlickDirection != null) -> flickKeys!![mFlickDirection]!!.previewLabel
+            mPressed && hasFlickPrediction && mFlickDirection == Direction.North -> flickPrediction
+            mPressed && hasStaticFlick && (mFlickDirection != null) -> flickKeys!![mFlickDirection]!!.previewLabel
             else -> label
         }
 
@@ -545,10 +547,26 @@ data class Key(
         return sqrt((dx * dx + dy * dy).toFloat())
     }
 
-    val hasFlick: Boolean = flickKeys != null && flickKeys.isNotEmpty()
+    /**
+     * A live word prediction associated with this key. This is intentionally not part of the
+     * data-class constructor: predictions change while typing and must not affect key identity.
+     */
+    @Volatile
+    var flickPrediction: String? = null
+
+    val hasFlickPrediction: Boolean
+        get() = !flickPrediction.isNullOrBlank()
+
+    val hasStaticFlick: Boolean
+        get() = flickKeys != null && flickKeys.isNotEmpty()
+
+    val hasFlick: Boolean
+        get() = hasStaticFlick || hasFlickPrediction
+
     private var mFlickDirection: Direction? = null
+
     fun flickDirection(dx: Int, dy: Int): Direction? = run {
-        if(flickKeys == null) {
+        if(!hasStaticFlick && !hasFlickPrediction) {
             null
         } else {
             val dirs = computeDirectionsFromDeltaPos(
@@ -556,14 +574,35 @@ data class Key(
                 dy = dy.toDouble(),
                 threshold = (width / 3).toDouble()
             )
-            dirs.firstOrNull { flickKeys.contains(it) }
+            dirs.firstOrNull {
+                (it == Direction.North && hasFlickPrediction) ||
+                    (flickKeys?.contains(it) == true)
+            }
         }
     }.also {
         mFlickDirection = it
     }
 
-    fun flick(dx: Int, dy: Int): Key =
-        flickDirection(dx, dy)?.let { (flickKeys ?: return@let null)[it] } ?: this
+    fun flick(dx: Int, dy: Int): Key {
+        val direction = flickDirection(dx, dy) ?: return this
+        if(direction == Direction.North && hasFlickPrediction) {
+            val word = flickPrediction ?: return this
+            return copy(
+                code = Constants.CODE_OUTPUT_TEXT,
+                label = word,
+                outputText = word,
+                hintLabel = null,
+                hintIconId = null,
+                moreKeys = emptyList(),
+                flickKeys = null,
+                labelOverride = null,
+                iconOverride = null,
+                isFastLongPress = false,
+                isEnabled = true
+            )
+        }
+        return flickKeys?.get(direction) ?: this
+    }
 
     val flickDirection: Direction?
         get() = mFlickDirection

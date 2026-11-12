@@ -137,6 +137,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
 
     // The current key where this pointer is.
     private Key mCurrentKey = null;
+    // The key pressed when a live on-key word prediction was available.
+    // Kept separately because swipe typing temporarily clears mCurrentKey.
+    private Key mPredictionStartKey = null;
+    private long mPredictionStartTime = 0L;
     // The position where the current key was recognized for the first time.
     private int mKeyX;
     private int mKeyY;
@@ -720,6 +724,8 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
     }
 
     private void onDownEventInternal(final int x, final int y, final long eventTime) {
+        mPredictionStartKey = null;
+        mPredictionStartTime = 0L;
         Key key = onDownKey(x, y, eventTime);
         // Key selection by dragging finger is allowed when 1) key selection by dragging finger is
         // enabled by configuration, 2) this pointer starts dragging from modifier key, or 3) this
@@ -763,7 +769,11 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             mSpacebarLongPressed = false;
 
             mIsSlidingCursor = key.getCode() == Constants.CODE_DELETE || key.getCode() == Constants.CODE_SPACE;
-            mIsFlickingKey = !mIsSlidingCursor && key.getHasFlick();
+            // Static flick keys keep their existing fast path. Dynamic word predictions are
+            // tracked separately so normal swipe typing remains available from those keys.
+            mIsFlickingKey = !mIsSlidingCursor && key.getHasStaticFlick();
+            mPredictionStartKey = key.getHasFlickPrediction() ? key : null;
+            mPredictionStartTime = mPredictionStartKey != null ? eventTime : 0L;
             mFlickDirection = key.flickDirection(0, 0);
             mCurrentKey = key;
         }
@@ -1029,6 +1039,16 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             return;
         }
 
+        if (mPredictionStartKey != null && oldKey == mPredictionStartKey && !mIsFlickingKey) {
+            final Direction previousPredictionDirection = mPredictionStartKey.getFlickDirection();
+            final Direction predictionDirection =
+                    mPredictionStartKey.flickDirection(x - mStartX, y - mStartY);
+            if (previousPredictionDirection != predictionDirection) {
+                sDrawingProxy.onKeyReleased(mPredictionStartKey, false);
+                sDrawingProxy.onKeyPressed(mPredictionStartKey, true);
+            }
+        }
+
         if(mIsFlickingKey && oldKey != null) {
             final Direction prevDirection = mFlickDirection;
             mFlickDirection = oldKey.flickDirection(x - mStartX, y - mStartY);
@@ -1148,6 +1168,44 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             sListener.onUpWithPointerActive();
         }
 
+        if (mPredictionStartKey != null) {
+            final Key predictionKey = mPredictionStartKey;
+            final int predictionDx = x - mStartX;
+            final int predictionDy = y - mStartY;
+            final int flickThreshold = Math.max(1, predictionKey.getWidth() / 3);
+            final boolean isUpwardFlick = predictionDy <= -flickThreshold;
+            final boolean isMostlyVertical =
+                    Math.abs(predictionDx) <= Math.max(2, (int)(predictionKey.getWidth() * 0.65f));
+            final boolean isQuickFlick = eventTime - mPredictionStartTime <= 750L;
+
+            if (predictionKey.getHasFlickPrediction()
+                    && isUpwardFlick
+                    && isMostlyVertical
+                    && isQuickFlick) {
+                // If the movement was tentatively classified as swipe typing, cancel that batch
+                // before inserting the selected word.
+                if (sInGesture) {
+                    sInGesture = false;
+                    mBatchInputArbiter.onCancelBatchInput();
+                    sListener.onCancelBatchInput();
+                }
+                mIsDetectingGesture = false;
+                final Key predictedWordKey = predictionKey.flick(predictionDx, predictionDy);
+                mPredictionStartKey = null;
+                predictionKey.flickDirection(0, 0);
+                if (predictedWordKey != predictionKey) {
+                    // A recognized flick is a deliberate key action even if the pointer briefly
+                    // left the original key's hit box on its way upward.
+                    mIsTrackingForActionDisabled = false;
+                    detectAndSendKey(predictedWordKey, mKeyX, mKeyY, eventTime);
+                    return;
+                }
+            }
+
+            predictionKey.flickDirection(0, 0);
+            mPredictionStartKey = null;
+        }
+
         if(mIsFlickingKey && currentKey != null) {
             final Key flickedKey = currentKey.flick(x - mStartX, y - mStartY);
             detectAndSendKey(flickedKey, mKeyX, mKeyY, eventTime);
@@ -1222,6 +1280,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         if (key == null) {
             return;
         }
+        if (mPredictionStartKey != null) {
+            mPredictionStartKey.flickDirection(0, 0);
+            mPredictionStartKey = null;
+        }
         if (key.getHasNoPanelAutoMoreKey()) {
             cancelKeyTracking();
             final int moreKeyCode = key.getMoreKeys().get(0).mCode;
@@ -1275,6 +1337,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
 
     private void cancelKeyTracking() {
         resetKeySelectionByDraggingFinger();
+        if (mPredictionStartKey != null) {
+            mPredictionStartKey.flickDirection(0, 0);
+            mPredictionStartKey = null;
+        }
         cancelTrackingForAction();
         setReleasedKeyGraphics(mCurrentKey, true /* withAnimation */);
         sPointerTrackerQueue.remove(this);
@@ -1293,6 +1359,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
 
     private void onCancelEventInternal() {
         sTimerProxy.cancelKeyTimersOf(this);
+        if (mPredictionStartKey != null) {
+            mPredictionStartKey.flickDirection(0, 0);
+            mPredictionStartKey = null;
+        }
         setReleasedKeyGraphics(mCurrentKey, true /* withAnimation */);
         resetKeySelectionByDraggingFinger();
         dismissMoreKeysPanel();

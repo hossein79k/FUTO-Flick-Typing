@@ -100,6 +100,7 @@ import androidx.navigation.NavHostController
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.futo.inputmethod.accessibility.AccessibilityUtils
@@ -593,6 +594,20 @@ class UixManager(private val latinIME: LatinIME) {
 
     private val shouldShowSuggestionStrip = mutableStateOf(true)
     private val suggestedWords: MutableState<SuggestedWords?> = mutableStateOf(null)
+
+    init {
+        latinIME.lifecycleScope.launch {
+            latinIME.getSettingFlow(FlickTypingEnabled).collect { enabled ->
+                val predictions = if (enabled) {
+                    buildFlickSuggestionMap(suggestedWords.value)
+                } else {
+                    emptyMap()
+                }
+                latinIME.latinIMELegacy.setFlickSuggestions(predictions)
+            }
+        }
+    }
+
     private val expandableSuggestionCfg: MutableState<ExpandableSuggestionBarConfiguration> = mutableStateOf(
         NonExpandableSuggestionBar
     )
@@ -1467,9 +1482,44 @@ class UixManager(private val latinIME: LatinIME) {
         this.shouldShowSuggestionStrip.value = shouldShowSuggestionsStrip
     }
 
+    private fun buildFlickSuggestionMap(suggestedWords: SuggestedWords?): Map<Int, String> {
+        if (suggestedWords == null || suggestedWords.mIsObsoleteSuggestions) return emptyMap()
+
+        val typedWord = suggestedWords.mTypedWordInfo?.mWord
+        if (typedWord.isNullOrBlank()) return emptyMap()
+
+        val predictions = LinkedHashMap<Int, String>()
+        for (index in 0 until suggestedWords.size()) {
+            val candidate = suggestedWords.getWord(index)
+            if (candidate.length <= typedWord.length ||
+                !candidate.regionMatches(0, typedWord, 0, typedWord.length, ignoreCase = true)
+            ) {
+                continue
+            }
+
+            val nextCodePoint = candidate.codePointAt(typedWord.length)
+            if (!Character.isLetter(nextCodePoint)) continue
+
+            val keyCode = Character.toLowerCase(nextCodePoint)
+            if (!predictions.containsKey(keyCode)) {
+                // SuggestedWords is already ranked, so the first word for each next letter is
+                // the best-ranked candidate for that key.
+                predictions[keyCode] = candidate
+            }
+        }
+        return predictions
+    }
+
     fun setSuggestions(suggestedWords: SuggestedWords?, rtlSubtype: Boolean, cfg: ExpandableSuggestionBarConfiguration) {
         this.suggestedWords.value = suggestedWords
         this.expandableSuggestionCfg.value = cfg
+
+        val flickSuggestions = if (latinIME.getSetting(FlickTypingEnabled)) {
+            buildFlickSuggestionMap(suggestedWords)
+        } else {
+            emptyMap()
+        }
+        latinIME.latinIMELegacy.setFlickSuggestions(flickSuggestions)
 
         if(currentNotice.value != null && suggestedWords?.isEmpty != true) {
             if(numSuggestionsSinceNotice > 0) {

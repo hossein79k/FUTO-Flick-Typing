@@ -10,6 +10,7 @@ import androidx.compose.ui.res.stringResource
 import org.futo.inputmethod.latin.R
 import org.futo.inputmethod.latin.settings.Settings
 import org.futo.inputmethod.latin.uix.USE_TRANSFORMER_FINETUNING
+import org.futo.inputmethod.latin.uix.FlickTypingEnabled
 import org.futo.inputmethod.latin.uix.settings.NavigationItemStyle
 import org.futo.inputmethod.latin.uix.settings.Tip
 import org.futo.inputmethod.latin.uix.settings.UserSettingsMenu
@@ -98,6 +99,12 @@ val PredictiveTextMenu = UserSettingsMenu(
             subtitle = R.string.prefs_show_suggestions_summary,
             key = Settings.PREF_SHOW_SUGGESTIONS,
             default = {true}
+        ),
+
+        userSettingToggleDataStore(
+            title = R.string.flick_typing_enabled,
+            subtitle = R.string.flick_typing_enabled_summary,
+            setting = FlickTypingEnabled
         ),
 
         userSettingToggleSharedPrefs(
