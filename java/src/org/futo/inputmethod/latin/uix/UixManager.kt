@@ -1604,24 +1604,25 @@ fun startFlickTypingSettingsObserver() {
         }
     }
 
-    fun onCreate() {
         fun onCreate() {
-    initKeyboardLoadActions()
+        initKeyboardLoadActions()
 
-    // Start observing Flick Typing settings
-    startFlickTypingSettingsObserver()
+        // Start observing Flick Typing settings
+        startFlickTypingSettingsObserver()
 
-    isActionsExpanded.value = latinIME.getSettingBlocking(ActionBarExpanded)
+        isActionsExpanded.value = latinIME.getSettingBlocking(ActionBarExpanded)
+
         latinIME.lifecycleScope.launch(Dispatchers.Main) {
             WindowInfoTracker.getOrCreate(latinIME).windowLayoutInfo(latinIME).collect {
-                foldingOptions.value = FoldingOptions(it.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull())
+                foldingOptions.value = FoldingOptions(
+                    it.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
+                )
                 latinIME.invalidateKeyboard(true)
             }
         }
 
         setContent()
     }
-
     fun onPersistentStatesUnlocked() {
         initKeyboardLoadActions()
 
