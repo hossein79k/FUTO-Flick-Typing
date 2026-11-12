@@ -595,18 +595,25 @@ class UixManager(private val latinIME: LatinIME) {
     private val shouldShowSuggestionStrip = mutableStateOf(true)
     private val suggestedWords: MutableState<SuggestedWords?> = mutableStateOf(null)
 
-    init {
-        latinIME.lifecycleScope.launch {
-            latinIME.getSettingFlow(FlickTypingEnabled).collect { enabled ->
-                val predictions = if (enabled) {
-                    buildFlickSuggestionMap(suggestedWords.value)
-                } else {
-                    emptyMap()
-                }
-                latinIME.latinIMELegacy.setFlickSuggestions(predictions)
+    private var flickTypingObserverStarted = false
+
+fun startFlickTypingSettingsObserver() {
+    if (flickTypingObserverStarted) return
+
+    flickTypingObserverStarted = true
+
+    latinIME.lifecycleScope.launch {
+        latinIME.getSettingFlow(FlickTypingEnabled).collect { enabled ->
+            val predictions = if (enabled) {
+                buildFlickSuggestionMap(suggestedWords.value)
+            } else {
+                emptyMap()
             }
+
+            latinIME.latinIMELegacy.setFlickSuggestions(predictions)
         }
     }
+}
 
     private val expandableSuggestionCfg: MutableState<ExpandableSuggestionBarConfiguration> = mutableStateOf(
         NonExpandableSuggestionBar
