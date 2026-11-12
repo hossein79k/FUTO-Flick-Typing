@@ -1605,10 +1605,13 @@ fun startFlickTypingSettingsObserver() {
     }
 
     fun onCreate() {
-        initKeyboardLoadActions()
+        fun onCreate() {
+    initKeyboardLoadActions()
 
-        isActionsExpanded.value = latinIME.getSettingBlocking(ActionBarExpanded)
+    // Start observing Flick Typing settings
+    startFlickTypingSettingsObserver()
 
+    isActionsExpanded.value = latinIME.getSettingBlocking(ActionBarExpanded)
         latinIME.lifecycleScope.launch(Dispatchers.Main) {
             WindowInfoTracker.getOrCreate(latinIME).windowLayoutInfo(latinIME).collect {
                 foldingOptions.value = FoldingOptions(it.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull())
