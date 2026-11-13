@@ -560,7 +560,7 @@ public class KeyboardView extends View {
 
             // Place the complete suggestion outside the key background,
             // immediately above the key's top edge.
-            final float gapAboveKey = 0.5f * density;
+            final float gapAboveKey = 0.1f * density;
 final float baseline = keyTop - gapAboveKey - mFontMetrics.descent;
 
             canvas.drawText(
