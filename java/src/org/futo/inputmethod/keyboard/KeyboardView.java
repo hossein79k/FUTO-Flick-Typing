@@ -179,6 +179,21 @@ public class KeyboardView extends View {
 
         mPaint.setAntiAlias(true);
 
+        // Reserve space above the first key row for Flick predictions.
+        // MainKeyboardView accounts for this padding when configuring touch coordinates.
+        if (this instanceof MainKeyboardView) {
+            final int flickPredictionTopPadding = Math.round(
+                    30.0f * getResources().getDisplayMetrics().density);
+            if (getPaddingTop() < flickPredictionTopPadding) {
+                setPadding(
+                        getPaddingLeft(),
+                        flickPredictionTopPadding,
+                        getPaddingRight(),
+                        getPaddingBottom()
+                );
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             setForceDarkAllowed(false);
         }
@@ -293,6 +308,7 @@ public class KeyboardView extends View {
 
         if (canvas.isHardwareAccelerated()) {
             onDrawKeyboard(canvas);
+            drawFlickPredictions(canvas);
             return;
         }
 
@@ -306,6 +322,143 @@ public class KeyboardView extends View {
             onDrawKeyboard(mOffscreenCanvas);
         }
         canvas.drawBitmap(mOffscreenBuffer, 0.0f, 0.0f, null);
+
+        // Draw Flick suggestions as a separate overlay so later key backgrounds
+        // cannot cover them and cached bitmap redraws cannot leave ghost text.
+        drawFlickPredictions(canvas);
+    }
+
+    private void drawFlickPredictions(@Nonnull final Canvas canvas) {
+        final Keyboard keyboard = getKeyboard();
+        if (keyboard == null) {
+            return;
+        }
+
+        final List<Key> keys = keyboard.getSortedKeys();
+        final List<Integer> layers = mDrawableProvider.getLayers();
+        if (layers.isEmpty()) {
+            return;
+        }
+
+        final Paint paint = mPaint;
+        final float density = getResources().getDisplayMetrics().density;
+        final float horizontalSpacing = 8.0f * density;
+        final float verticalSpacing = 2.0f * density;
+
+        for (final Key key : keys) {
+            final String prediction = key.getFlickPrediction();
+            if (TextUtils.isEmpty(prediction) || !Character.isLetter(key.getCode())) {
+                continue;
+            }
+
+            final KeyDrawParams params = mKeyDrawParams.mayCloneAndUpdateParams(
+                    key.getWidth(),
+                    Math.min(key.getHeight(), key.getWidth()),
+                    key.getVisualAttributes()
+            );
+            params.mAnimAlpha = Constants.Color.ALPHA_OPAQUE;
+
+            KeyDrawingConfiguration predictionConfig = null;
+            for (final int layer : layers) {
+                final KeyDrawingConfiguration candidate =
+                        mDrawableProvider.selectKeyDrawingConfiguration(
+                                keyboard, params, key, layer);
+
+                if (candidate == null) {
+                    continue;
+                }
+
+                if (predictionConfig == null) {
+                    predictionConfig = candidate;
+                }
+
+                if (Color.alpha(candidate.getHintColor()) > 0) {
+                    predictionConfig = candidate;
+                    break;
+                }
+            }
+
+            if (predictionConfig == null
+                    || Color.alpha(predictionConfig.getHintColor()) == 0) {
+                continue;
+            }
+
+            paint.setAntiAlias(true);
+            paint.setTypeface(predictionConfig.getHintTypeface());
+            paint.setTextSize(Math.max(
+                    12.0f * density,
+                    predictionConfig.getHintSize() * 1.35f
+            ));
+            paint.setTextAlign(Align.CENTER);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(predictionConfig.getHintColor());
+            paint.clearShadowLayer();
+            paint.setTextScaleX(1.0f);
+            paint.getFontMetrics(mFontMetrics);
+
+            final float centerX = key.getDrawX() + getPaddingLeft()
+                    + key.getDrawWidth() * 0.5f;
+            final float keyTop = key.getY() + getPaddingTop();
+
+            // Place the complete word above the key background, not over the letter.
+            final float baseline = keyTop - mFontMetrics.descent - verticalSpacing;
+
+            // Start with the available width between the keyboard's left and right edges.
+            float maxWidth = 2.0f * Math.min(
+                    Math.max(0.0f, centerX - horizontalSpacing),
+                    Math.max(0.0f, getWidth() - centerX - horizontalSpacing)
+            );
+
+            // Keep predictions on the same row from colliding with one another.
+            for (final Key otherKey : keys) {
+                if (otherKey == key
+                        || TextUtils.isEmpty(otherKey.getFlickPrediction())
+                        || !Character.isLetter(otherKey.getCode())) {
+                    continue;
+                }
+
+                if (Math.abs(otherKey.getY() - key.getY())
+                        > Math.max(2.0f * density, key.getHeight() * 0.30f)) {
+                    continue;
+                }
+
+                final float otherCenterX = otherKey.getDrawX() + getPaddingLeft()
+                        + otherKey.getDrawWidth() * 0.5f;
+                final float distance = Math.abs(centerX - otherCenterX);
+
+                if (distance > 0.0f) {
+                    maxWidth = Math.min(
+                            maxWidth,
+                            Math.max(0.0f, distance - horizontalSpacing)
+                    );
+                }
+            }
+
+            if (maxWidth <= 0.0f) {
+                continue;
+            }
+
+            // Never abbreviate a suggestion. Compress it horizontally only when needed.
+            final float predictionWidth = paint.measureText(prediction);
+            if (predictionWidth > maxWidth && predictionWidth > 0.0f) {
+                paint.setTextScaleX(maxWidth / predictionWidth);
+            }
+
+            canvas.drawText(
+                    prediction,
+                    0,
+                    prediction.length(),
+                    centerX,
+                    baseline,
+                    paint
+            );
+
+            paint.setTextScaleX(1.0f);
+        }
+
+        // Avoid leaking text drawing state into subsequent canvas operations.
+        paint.setTextScaleX(1.0f);
+        paint.clearShadowLayer();
     }
 
     private boolean maybeAllocateOffscreenBuffer() {
@@ -501,11 +654,6 @@ public class KeyboardView extends View {
 
             // Vertical label text alignment.
             labelBaseline = centerY + labelCharHeight / 2.0f;
-            if (key.getHasFlickPrediction()) {
-                // Reserve a little room at the top of the key for the live word prediction.
-                labelBaseline += kdc.getHintSize() * 0.48f;
-            }
-
             if(kdc.getCenteredHint() && kdc.getHintLabel() != null && !key.getHasHintLabel() && !key.getHasShiftedLetterHint()) {
                 labelBaseline += kdc.getTextSize() * 0.1f;
             }
@@ -627,47 +775,7 @@ public class KeyboardView extends View {
             drawIcon(canvas, hintIcon, hintX, hintY, iconWidth, iconHeight);
         }
 
-                // Draw the BlackBerry-style on-key prediction above the primary letter.
-        final String flickPrediction = key.getFlickPrediction();
-        if (flickPrediction != null && !flickPrediction.isEmpty()) {
-            final String displayPrediction = flickPrediction;
-
-            paint.setTypeface(kdc.getHintTypeface());
-
-            // Bigger Flick prediction text
-            paint.setTextSize(Math.max(9.0f, kdc.getHintSize() * 1.20f));
-
-            paint.setTextAlign(Align.CENTER);
-            paint.setColor(kdc.getHintColor());
-            paint.clearShadowLayer();
-
-            // Allow long predictions to span across neighboring keys instead of truncating.
-            final float maxPredictionWidth = keyWidth * 3.2f;
-            final float predictionWidth = paint.measureText(displayPrediction);
-
-            if (predictionWidth > maxPredictionWidth && predictionWidth > 0.0f) {
-                paint.setTextScaleX(maxPredictionWidth / predictionWidth);
-            } else {
-                paint.setTextScaleX(1.0f);
-            }
-
-            // Move prediction higher, closer to the style in the reference keyboard.
-            final float predictionBaseline = Math.max(
-                    -paint.ascent() + keyHintPaddingY * 0.02f,
-                    keyHeight * 0.10f
-            );
-
-            canvas.drawText(
-                    displayPrediction,
-                    centerX,
-                    predictionBaseline,
-                    paint
-            );
-
-            paint.setTextScaleX(1.0f);
-        }
-
-        // Draw key icon.
+                // Draw key icon.
         if (icon != null) {
             final float size = kdc.getTextSize() * 1.75f;
 
