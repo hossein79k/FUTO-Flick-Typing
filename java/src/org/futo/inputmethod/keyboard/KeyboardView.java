@@ -503,7 +503,7 @@ public class KeyboardView extends View {
             labelBaseline = centerY + labelCharHeight / 2.0f;
             if (key.getHasFlickPrediction()) {
                 // Reserve a little room at the top of the key for the live word prediction.
-                labelBaseline += kdc.getHintSize() * 0.35f;
+                labelBaseline += kdc.getHintSize() * 0.48f;
             }
 
             if(kdc.getCenteredHint() && kdc.getHintLabel() != null && !key.getHasHintLabel() && !key.getHasShiftedLetterHint()) {
