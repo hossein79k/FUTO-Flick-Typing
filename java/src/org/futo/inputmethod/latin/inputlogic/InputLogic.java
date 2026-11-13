@@ -369,12 +369,42 @@ public final class InputLogic {
         final InputTransaction inputTransaction = new InputTransaction(settingsValues, event,
                 SystemClock.uptimeMillis(), mSpaceState,
                 getActualCapsMode(settingsValues, keyboardShiftMode));
+
+        // Flick Typing sends the completed word through CODE_OUTPUT_TEXT. If that text
+        // extends the word currently being composed, it is a replacement suggestion,
+        // not new text to append after committing the typed prefix.
+        final String typedWord = mWordComposer.isComposingWord()
+                ? mWordComposer.getTypedWord() : "";
+        final boolean isFlickWordCompletion =
+                event.mKeyCode == Constants.CODE_OUTPUT_TEXT
+                && !TextUtils.isEmpty(typedWord)
+                && rawText.length() > typedWord.length()
+                && rawText.regionMatches(true, 0, typedWord, 0, typedWord.length());
+
         mConnection.beginBatchEdit();
-        if (mWordComposer.isComposingWord()) {
+        if (isFlickWordCompletion) {
+            final boolean wasBatchMode = mWordComposer.isBatchMode();
+
+            // Make sure the editor's composing region still covers the typed prefix.
+            // commitChosenWord() will then replace that prefix with the full completion.
+            restoreComposingRegionForSuggestionReplacement(
+                    settingsValues, mImeHelper.getCurrentKeyboardScriptId());
+
+            commitChosenWord(
+                    settingsValues,
+                    rawText,
+                    LastComposedWord.COMMIT_TYPE_MANUAL_PICK,
+                    LastComposedWord.NOT_A_SEPARATOR,
+                    1
+            );
+            mLastComposedWord.deactivate();
+            StatsUtils.onWordCommitSuggestionPickedManually(rawText, wasBatchMode);
+        } else if (mWordComposer.isComposingWord()) {
             commitCurrentAutoCorrection(settingsValues, rawText);
         } else {
             resetComposingState(true /* alsoResetLastComposedWord */);
         }
+
         postUpdateSuggestionStrip(SuggestedWords.INPUT_STYLE_NONE);
         final String text = performSpecificTldProcessingOnTextInput(rawText);
         if (SpaceState.PHANTOM == mSpaceState) {
@@ -384,8 +414,13 @@ public final class InputLogic {
         if(event.mKeyCode == Constants.CODE_OUTPUT_TEXT_WITH_SPACES) {
             if(mConnection.cursorNotPrecededByWhitespace()) mConnection.commitText(" ", 1);
         }
-        mConnection.commitText(text, 1);
-        StatsUtils.onWordCommitUserTyped(mEnteredText, mWordComposer.isBatchMode());
+
+        // A flick completion has already been committed through commitChosenWord().
+        // Committing rawText again here would produce duplicates such as "wewere".
+        if (!isFlickWordCompletion) {
+            mConnection.commitText(text, 1);
+            StatsUtils.onWordCommitUserTyped(mEnteredText, mWordComposer.isBatchMode());
+        }
 
         if(event.mKeyCode == Constants.CODE_OUTPUT_TEXT_WITH_SPACES) {
             insertOrSetPhantomSpace(settingsValues);
@@ -419,6 +454,52 @@ public final class InputLogic {
         }
 
         if(needToUpdateSuggestionStrip) postUpdateSuggestionStrip(SuggestedWords.INPUT_STYLE_TYPING);
+    }
+
+    /**
+     * Restore the editor composing region before replacing a typed word with a suggestion.
+     * Some editors can lose or narrow the composing region even while WordComposer still
+     * tracks the original typed word.
+     */
+    private void restoreComposingRegionForSuggestionReplacement(
+            final SettingsValues settingsValues,
+            final int currentKeyboardScriptId) {
+        if (!mWordComposer.isComposingWord()) {
+            return;
+        }
+
+        final int cursorPosition = mConnection.getExpectedSelectionStart();
+        final TextRange range = mConnection.getWordRangeAtCursor(
+                settingsValues,
+                currentKeyboardScriptId,
+                true
+        );
+
+        if (range != null && range.length() > 0 && !range.mHasUrlSpans) {
+            final int start =
+                    cursorPosition - range.getNumberOfCharsInWordBeforeCursor();
+            final int end =
+                    cursorPosition + range.getNumberOfCharsInWordAfterCursor();
+
+            if (cursorPosition >= 0 && start >= 0 && end >= start) {
+                mConnection.setComposingRegion(start, end, range.mWord.toString());
+            }
+        } else {
+            final String typedWord = mWordComposer.getTypedWord();
+            final CharSequence beforeCursor =
+                    mConnection.getTextBeforeCursor(typedWord.length(), 0);
+
+            if (cursorPosition >= typedWord.length()
+                    && beforeCursor != null
+                    && beforeCursor.length() == typedWord.length()
+                    && beforeCursor.toString().equalsIgnoreCase(typedWord)) {
+                mConnection.setComposingRegion(
+                        cursorPosition - typedWord.length(),
+                        cursorPosition,
+                        beforeCursor.toString()
+                );
+            }
+        }
     }
 
     /**
@@ -557,66 +638,8 @@ public final class InputLogic {
      * Not:        wewere
      */
 
-    if (mWordComposer.isComposingWord()) {
-
-        final int cursorPosition =
-                mConnection.getExpectedSelectionStart();
-
-        final TextRange range =
-                mConnection.getWordRangeAtCursor(
-                        settingsValues,
-                        currentKeyboardScriptId,
-                        true
-                );
-
-        if (range != null
-                && range.length() > 0
-                && !range.mHasUrlSpans) {
-
-            final int start =
-                    cursorPosition
-                            - range.getNumberOfCharsInWordBeforeCursor();
-
-            final int end =
-                    cursorPosition
-                            + range.getNumberOfCharsInWordAfterCursor();
-
-            if (cursorPosition >= 0
-                    && start >= 0
-                    && end >= start) {
-
-                // Explicitly restore the composing region.
-                mConnection.setComposingRegion(
-                        start,
-                        end,
-                        range.mWord.toString()
-                );
-            }
-
-        } else {
-
-            // Fallback for a normal word when range detection fails.
-            final String typedWord = mWordComposer.getTypedWord();
-
-            final CharSequence beforeCursor =
-                    mConnection.getTextBeforeCursor(
-                            typedWord.length(),
-                            0
-                    );
-
-            if (cursorPosition >= typedWord.length()
-                    && beforeCursor != null
-                    && beforeCursor.length() == typedWord.length()
-                    && beforeCursor.toString().equalsIgnoreCase(typedWord)) {
-
-                mConnection.setComposingRegion(
-                        cursorPosition - typedWord.length(),
-                        cursorPosition,
-                        beforeCursor.toString()
-                );
-            }
-        }
-    }
+    restoreComposingRegionForSuggestionReplacement(
+            settingsValues, currentKeyboardScriptId);
 
     // Handle languages with no automatic spaces.
     if (settingsValues.mAltSpacesMode == Settings.SPACES_MODE_NONE) {
