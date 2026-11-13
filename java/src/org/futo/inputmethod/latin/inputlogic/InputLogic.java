@@ -431,101 +431,247 @@ public final class InputLogic {
      */
     // Called from {@link SuggestionStripView} through the {@link SuggestionStripView#Listener}
     // interface
-    public InputTransaction onPickSuggestionManually(final SettingsValues settingsValues,
-            final SuggestedWordInfo suggestionInfo, final int keyboardShiftState,
-            final int currentKeyboardScriptId) {
-        final SuggestedWords suggestedWords = mSuggestedWords;
-        final String suggestion = suggestionInfo.mWord;
-        // If this is a punctuation picked from the suggestion strip, pass it to onCodeInput
-        if (suggestion.length() == 1 && suggestedWords.isPunctuationSuggestions()) {
-            // We still want to log a suggestion click.
-            StatsUtils.onPickSuggestionManually(mImeHelper.getContext(),
-                    mSuggestedWords, suggestionInfo, mDictionaryFacilitator);
-            // Word separators are suggested before the user inputs something.
-            // Rely on onCodeInput to do the complicated swapping/stripping logic consistently.
-            final Event event = Event.createPunctuationSuggestionPickedEvent(suggestionInfo);
-            return onCodeInput(settingsValues, event, keyboardShiftState,
-                    currentKeyboardScriptId);
-        }
+    public InputTransaction onPickSuggestionManually(
+        final SettingsValues settingsValues,
+        final SuggestedWordInfo suggestionInfo,
+        final int keyboardShiftState,
+        final int currentKeyboardScriptId) {
 
-        final Event event = Event.createSuggestionPickedEvent(suggestionInfo);
-        final InputTransaction inputTransaction = new InputTransaction(settingsValues,
-                event, SystemClock.uptimeMillis(), mSpaceState, keyboardShiftState);
-        // Manual pick affects the contents of the editor, so we take note of this. It's important
-        // for the sequence of language switching.
-        inputTransaction.setDidAffectContents();
+    final SuggestedWords suggestedWords = mSuggestedWords;
+    final String suggestion = suggestionInfo.mWord;
 
-        if(suggestionInfo.mKindAndFlags == SuggestedWordInfo.KIND_UNDO) {
-            inputTransaction.setRequiresUpdateSuggestions();
+    // Handle punctuation suggestions
+    if (suggestion.length() == 1 && suggestedWords.isPunctuationSuggestions()) {
 
-            mConnection.finishComposingText();
-            mWordComposer.reset(true);
+        StatsUtils.onPickSuggestionManually(
+                mImeHelper.getContext(),
+                mSuggestedWords,
+                suggestionInfo,
+                mDictionaryFacilitator
+        );
 
-            mConnection.commitText(suggestionInfo.mWord, 1);
+        final Event event =
+                Event.createPunctuationSuggestionPickedEvent(suggestionInfo);
 
-            return inputTransaction;
-        }
+        return onCodeInput(
+                settingsValues,
+                event,
+                keyboardShiftState,
+                currentKeyboardScriptId
+        );
+    }
 
-        if(mWordComposer.isComposingWord()) {
-            rememberSuggestedWords(mConnection.getExpectedSelectionStart() - mWordComposer.sizeBeforeCursor(),
-                    suggestion, suggestedWords);
-        }
+    final Event event = Event.createSuggestionPickedEvent(suggestionInfo);
 
-        mConnection.beginBatchEdit();
-        if (SpaceState.PHANTOM == mSpaceState && suggestion.length() > 0
-                // In the batch input mode, a manually picked suggested word should just replace
-                // the current batch input text and there is no need for a phantom space.
-                && !mWordComposer.isBatchMode()) {
-            final int firstChar = Character.codePointAt(suggestion, 0);
-            if (!settingsValues.isWordSeparator(firstChar)
-                    || settingsValues.isUsuallyPrecededBySpace(firstChar)) {
+    final InputTransaction inputTransaction =
+            new InputTransaction(
+                    settingsValues,
+                    event,
+                    SystemClock.uptimeMillis(),
+                    mSpaceState,
+                    keyboardShiftState
+            );
 
-                if(!mConnection.spacePrecedesComposingText())
-                    insertAutomaticSpaceIfOptionsAndTextAllow(settingsValues);
-            }
-        }
+    inputTransaction.setDidAffectContents();
 
-        // TODO: We should not need the following branch. We should be able to take the same
-        // code path as for other kinds, use commitChosenWord, and do everything normally. We will
-        // however need to reset the suggestion strip right away, because we know we can't take
-        // the risk of calling commitCompletion twice because we don't know how the app will react.
-        if (suggestionInfo.isKindOf(SuggestedWordInfo.KIND_APP_DEFINED)) {
-            mSuggestedWords = SuggestedWords.getEmptyInstance();
-            mSuggestionStripViewAccessor.setNeutralSuggestionStrip();
-            inputTransaction.requireShiftUpdate(InputTransaction.SHIFT_UPDATE_NOW);
-            resetComposingState(true /* alsoResetLastComposedWord */);
-            mConnection.commitCompletion(suggestionInfo.mApplicationSpecifiedCompletionInfo);
-            mConnection.endBatchEdit();
-            return inputTransaction;
-        }
+    // Undo suggestion
+    if (suggestionInfo.mKindAndFlags == SuggestedWordInfo.KIND_UNDO) {
 
-        // The logic for no auto-spaces is a little different, we need to stay in composing
-        // state. If the suggestion has spaces in it, then we have to compose the final word.
-        if(settingsValues.mAltSpacesMode == Settings.SPACES_MODE_NONE) {
-            insertSuggestionAndKeepComposing(settingsValues, suggestion, true);
-            mConnection.endBatchEdit();
-            return inputTransaction;
-        }
+        inputTransaction.setRequiresUpdateSuggestions();
 
-        commitChosenWord(settingsValues, suggestion, LastComposedWord.COMMIT_TYPE_MANUAL_PICK,
-                LastComposedWord.NOT_A_SEPARATOR, suggestionInfo.isKindOf(SuggestedWordInfo.KIND_TYPED) ? 3 : 1);
-        mConnection.endBatchEdit();
-        // Don't allow cancellation of manual pick
-        mLastComposedWord.deactivate();
-        // Space state must be updated before calling updateShiftState
-        insertOrSetPhantomSpace(settingsValues);
-        inputTransaction.requireShiftUpdate(InputTransaction.SHIFT_UPDATE_NOW);
+        mConnection.finishComposingText();
+        mWordComposer.reset(true);
 
-        // If we're not showing the "Touch again to save", then update the suggestion strip.
-        // That's going to be predictions (or punctuation suggestions), so INPUT_STYLE_NONE.
-        postUpdateSuggestionStrip(SuggestedWords.INPUT_STYLE_NONE);
+        mConnection.commitText(suggestion, 1);
 
-        StatsUtils.onPickSuggestionManually(mImeHelper.getContext(),
-                mSuggestedWords, suggestionInfo, mDictionaryFacilitator);
-        StatsUtils.onWordCommitSuggestionPickedManually(
-                suggestionInfo.mWord, mWordComposer.isBatchMode());
         return inputTransaction;
     }
+
+    // Remember the ORIGINAL typed word, not the selected suggestion.
+    if (mWordComposer.isComposingWord()) {
+
+        final String typedWord = mWordComposer.getTypedWord();
+
+        rememberSuggestedWords(
+                mConnection.getExpectedSelectionStart()
+                        - mWordComposer.sizeBeforeCursor(),
+                typedWord,
+                suggestedWords
+        );
+    }
+
+    mConnection.beginBatchEdit();
+
+    // Handle phantom space
+    if (SpaceState.PHANTOM == mSpaceState
+            && suggestion.length() > 0
+            && !mWordComposer.isBatchMode()) {
+
+        final int firstChar = Character.codePointAt(suggestion, 0);
+
+        if (!settingsValues.isWordSeparator(firstChar)
+                || settingsValues.isUsuallyPrecededBySpace(firstChar)) {
+
+            if (!mConnection.spacePrecedesComposingText()) {
+                insertAutomaticSpaceIfOptionsAndTextAllow(settingsValues);
+            }
+        }
+    }
+
+    // Handle application-defined suggestions
+    if (suggestionInfo.isKindOf(SuggestedWordInfo.KIND_APP_DEFINED)) {
+
+        mSuggestedWords = SuggestedWords.getEmptyInstance();
+
+        mSuggestionStripViewAccessor.setNeutralSuggestionStrip();
+
+        inputTransaction.requireShiftUpdate(
+                InputTransaction.SHIFT_UPDATE_NOW
+        );
+
+        resetComposingState(true);
+
+        mConnection.commitCompletion(
+                suggestionInfo.mApplicationSpecifiedCompletionInfo
+        );
+
+        mConnection.endBatchEdit();
+
+        return inputTransaction;
+    }
+
+    /*
+     * IMPORTANT FIX:
+     *
+     * Restore the actual composing region before committing
+     * the selected suggestion.
+     *
+     * This prevents a selected suggestion from being appended
+     * to the original typed word.
+     *
+     * Example:
+     * Typed:      we
+     * Suggestion: were
+     *
+     * Expected:   were
+     * Not:        wewere
+     */
+
+    if (mWordComposer.isComposingWord()) {
+
+        final int cursorPosition =
+                mConnection.getExpectedSelectionStart();
+
+        final TextRange range =
+                mConnection.getWordRangeAtCursor(
+                        settingsValues,
+                        currentKeyboardScriptId,
+                        true
+                );
+
+        if (range != null
+                && range.length() > 0
+                && !range.mHasUrlSpans) {
+
+            final int start =
+                    cursorPosition
+                            - range.getNumberOfCharsInWordBeforeCursor();
+
+            final int end =
+                    cursorPosition
+                            + range.getNumberOfCharsInWordAfterCursor();
+
+            if (cursorPosition >= 0
+                    && start >= 0
+                    && end >= start) {
+
+                // Explicitly restore the composing region.
+                mConnection.setComposingRegion(
+                        start,
+                        end,
+                        range.mWord.toString()
+                );
+            }
+
+        } else {
+
+            // Fallback for a normal word when range detection fails.
+            final String typedWord = mWordComposer.getTypedWord();
+
+            final CharSequence beforeCursor =
+                    mConnection.getTextBeforeCursor(
+                            typedWord.length(),
+                            0
+                    );
+
+            if (cursorPosition >= typedWord.length()
+                    && beforeCursor != null
+                    && beforeCursor.length() == typedWord.length()
+                    && beforeCursor.toString().equalsIgnoreCase(typedWord)) {
+
+                mConnection.setComposingRegion(
+                        cursorPosition - typedWord.length(),
+                        cursorPosition,
+                        beforeCursor.toString()
+                );
+            }
+        }
+    }
+
+    // Handle languages with no automatic spaces.
+    if (settingsValues.mAltSpacesMode == Settings.SPACES_MODE_NONE) {
+
+        insertSuggestionAndKeepComposing(
+                settingsValues,
+                suggestion,
+                true
+        );
+
+        mConnection.endBatchEdit();
+
+        return inputTransaction;
+    }
+
+    // Commit the selected suggestion.
+    commitChosenWord(
+            settingsValues,
+            suggestion,
+            LastComposedWord.COMMIT_TYPE_MANUAL_PICK,
+            LastComposedWord.NOT_A_SEPARATOR,
+            suggestionInfo.isKindOf(SuggestedWordInfo.KIND_TYPED) ? 3 : 1
+    );
+
+    mConnection.endBatchEdit();
+
+    // Prevent cancellation of manual selection.
+    mLastComposedWord.deactivate();
+
+    // Update phantom space.
+    insertOrSetPhantomSpace(settingsValues);
+
+    inputTransaction.requireShiftUpdate(
+            InputTransaction.SHIFT_UPDATE_NOW
+    );
+
+    // Update suggestion strip.
+    postUpdateSuggestionStrip(
+            SuggestedWords.INPUT_STYLE_NONE
+    );
+
+    StatsUtils.onPickSuggestionManually(
+            mImeHelper.getContext(),
+            mSuggestedWords,
+            suggestionInfo,
+            mDictionaryFacilitator
+    );
+
+    StatsUtils.onWordCommitSuggestionPickedManually(
+            suggestionInfo.mWord,
+            mWordComposer.isBatchMode()
+    );
+
+    return inputTransaction;
+}
 
     /**
      * Consider an update to the cursor position. Evaluate whether this update has happened as
