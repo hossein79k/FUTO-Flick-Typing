@@ -544,6 +544,7 @@ public class KeyboardView extends View {
 
         final Paint paint = mPaint;
         final float density = getResources().getDisplayMetrics().density;
+        final Rect textBounds = new Rect();
 
         for (final FlickPredictionInfo info : mFlickPredictionRenderInfo.values()) {
             paint.setAntiAlias(true);
@@ -554,14 +555,17 @@ public class KeyboardView extends View {
             paint.setColor(info.configuration.getHintColor());
             paint.clearShadowLayer();
             paint.setTextScaleX(1.0f);
-            paint.getFontMetrics(mFontMetrics);
 
             final float keyTop = info.key.getY() + getPaddingTop();
 
-            // Place the complete suggestion outside the key background,
-            // immediately above the key's top edge.
+            // Measure the actual glyph bounds so the visible bottom of the
+            // suggestion sits just above the key, rather than using the
+            // font's larger line-spacing metrics.
+            textBounds.setEmpty();
+            paint.getTextBounds(info.text, 0, info.text.length(), textBounds);
+
             final float gapAboveKey = 0.1f * density;
-final float baseline = keyTop - gapAboveKey - mFontMetrics.descent;
+            final float baseline = keyTop - gapAboveKey - textBounds.bottom;
 
             canvas.drawText(
                     info.text,
