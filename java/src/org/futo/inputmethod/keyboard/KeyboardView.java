@@ -628,33 +628,49 @@ public class KeyboardView extends View {
         }
 
         // Draw the BlackBerry-style on-key prediction above the primary letter.
-        final String flickPrediction = key.getFlickPrediction();
-        if (flickPrediction != null && !flickPrediction.isEmpty()) {
-            String displayPrediction = flickPrediction;
-            paint.setTypeface(kdc.getHintTypeface());
-            paint.setTextSize(Math.max(7.0f, kdc.getHintSize() * 0.78f));
-            paint.setTextAlign(Align.CENTER);
-            paint.setColor(kdc.getHintColor());
-            paint.clearShadowLayer();
+final String flickPrediction = key.getFlickPrediction();
+if (flickPrediction != null && !flickPrediction.isEmpty()) {
+    String displayPrediction = flickPrediction;
 
-            final float maxPredictionWidth = keyWidth * 0.88f;
-            float predictionWidth = paint.measureText(displayPrediction);
-            if (predictionWidth > maxPredictionWidth * 1.25f && displayPrediction.length() > 7) {
-                displayPrediction = displayPrediction.substring(0, 6) + "…";
-                predictionWidth = paint.measureText(displayPrediction);
-            }
-            if (predictionWidth > maxPredictionWidth && predictionWidth > 0.0f) {
-                paint.setTextScaleX(maxPredictionWidth / predictionWidth);
-            }
+    paint.setTypeface(kdc.getHintTypeface());
 
-            final float predictionBaseline = Math.max(
-                    -paint.ascent() + keyHintPaddingY * 0.35f,
-                    keyHeight * 0.22f
-            );
-            canvas.drawText(displayPrediction, 0, displayPrediction.length(),
-                    centerX, predictionBaseline, paint);
-            paint.setTextScaleX(1.0f);
-        }
+    // Increase Flick prediction text size.
+    paint.setTextSize(Math.max(7.0f, kdc.getHintSize() * 0.95f));
+
+    paint.setTextAlign(Align.CENTER);
+    paint.setColor(kdc.getHintColor());
+    paint.clearShadowLayer();
+
+    final float maxPredictionWidth = keyWidth * 0.88f;
+    float predictionWidth = paint.measureText(displayPrediction);
+
+    if (predictionWidth > maxPredictionWidth * 1.25f
+            && displayPrediction.length() > 7) {
+        displayPrediction = displayPrediction.substring(0, 6) + "…";
+        predictionWidth = paint.measureText(displayPrediction);
+    }
+
+    if (predictionWidth > maxPredictionWidth && predictionWidth > 0.0f) {
+        paint.setTextScaleX(maxPredictionWidth / predictionWidth);
+    }
+
+    // Move prediction slightly higher.
+    final float predictionBaseline = Math.max(
+            -paint.ascent() + keyHintPaddingY * 0.15f,
+            keyHeight * 0.16f
+    );
+
+    canvas.drawText(
+            displayPrediction,
+            0,
+            displayPrediction.length(),
+            centerX,
+            predictionBaseline,
+            paint
+    );
+
+    paint.setTextScaleX(1.0f);
+}
 
         // Draw key icon.
         if (icon != null) {
