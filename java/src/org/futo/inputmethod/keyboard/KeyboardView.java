@@ -435,9 +435,10 @@ public class KeyboardView extends View {
                 continue;
             }
 
+            // Flick suggestions are intentionally larger than the small key hints.
             final float textSize = Math.max(
-                    12.0f * density,
-                    configuration.getHintSize() * 1.35f
+                    14.0f * density,
+                    configuration.getHintSize() * 1.55f
             );
 
             paint.setAntiAlias(true);
@@ -557,9 +558,10 @@ public class KeyboardView extends View {
 
             final float keyTop = info.key.getY() + getPaddingTop();
 
-            // Draw inside the key's top area; this avoids adding blank height
-            // above the keyboard while keeping the suggestion above the letter.
-            final float baseline = keyTop + 2.0f * density - mFontMetrics.top;
+            // Place the complete suggestion outside the key background,
+            // immediately above the key's top edge.
+            final float gapAboveKey = 2.0f * density;
+            final float baseline = keyTop - gapAboveKey - mFontMetrics.bottom;
 
             canvas.drawText(
                     info.text,
@@ -762,15 +764,16 @@ public class KeyboardView extends View {
 
         if (label != null && icon == null) {
             paint.setTypeface(kdc.getTextTypeface());
-            paint.setTextSize(kdc.getTextSize());
+            // Slightly enlarge the primary alphabetic characters without changing
+            // the size of action icons or non-letter labels.
+            final float keyLetterScale = Character.isLetter(key.getCode()) ? 1.12f : 1.0f;
+            paint.setTextSize(kdc.getTextSize() * keyLetterScale);
             final float labelCharHeight = TypefaceUtils.getReferenceCharHeight(paint);
             final float labelCharWidth = TypefaceUtils.getReferenceCharWidth(paint);
 
-            // Keep the main letter below its Flick prediction.
+            // Flick suggestions are now outside the key, so keep the main letter
+            // vertically centered in its original position.
             labelBaseline = centerY + labelCharHeight / 2.0f;
-            if (mFlickPredictionRenderInfo.containsKey(key)) {
-                labelBaseline += kdc.getHintSize() * 0.48f;
-            }
             if(kdc.getCenteredHint() && kdc.getHintLabel() != null && !key.getHasHintLabel() && !key.getHasShiftedLetterHint()) {
                 labelBaseline += kdc.getTextSize() * 0.1f;
             }
