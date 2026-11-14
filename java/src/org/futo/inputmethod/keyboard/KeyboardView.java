@@ -437,8 +437,8 @@ public class KeyboardView extends View {
 
             // Flick suggestions are intentionally larger than the small key hints.
             final float textSize = Math.max(
-                    16.0f * density,
-                    configuration.getHintSize() * 1.75f
+                    15.0f * density,
+                    configuration.getHintSize() * 1.65f
             );
 
             paint.setAntiAlias(true);
