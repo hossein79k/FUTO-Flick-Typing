@@ -26,18 +26,14 @@ import android.graphics.Paint.Align;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
 import android.text.Layout;
-import android.text.SpannableString;
-import android.text.Spanned;
 import android.text.StaticLayout;
 import android.text.TextDirectionHeuristics;
 import android.text.TextPaint;
 import android.text.TextUtils;
-import android.text.style.StyleSpan;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -146,18 +142,30 @@ public class KeyboardView extends View {
         final float textWidth;
         final float minimumGap;
         final StaticLayout layout;
+        final String prediction;
+        final TextPaint textPaint;
+        final int boldPrefixLength;
+        final boolean isRtl;
 
         FlickPredictionInfo(
                 final Key key,
                 final float centerX,
                 final float textWidth,
                 final float minimumGap,
-                @Nonnull final StaticLayout layout) {
+                @Nonnull final StaticLayout layout,
+                @Nonnull final String prediction,
+                @Nonnull final TextPaint textPaint,
+                final int boldPrefixLength,
+                final boolean isRtl) {
             this.key = key;
             this.centerX = centerX;
             this.textWidth = textWidth;
             this.minimumGap = minimumGap;
             this.layout = layout;
+            this.prediction = prediction;
+            this.textPaint = textPaint;
+            this.boldPrefixLength = boldPrefixLength;
+            this.isRtl = isRtl;
         }
     }
 
@@ -413,75 +421,101 @@ public class KeyboardView extends View {
     }
 
     /**
-     * Normalize common Arabic forms used interchangeably in Persian input. These
-     * replacements are one code unit each, so the original prefix length remains
-     * valid when the matching text is rendered.
+     * Normalize Arabic/Persian character variants and ignore invisible formatting
+     * controls for matching. The original UTF-16 end offset is calculated separately.
      */
     @Nonnull
     private String normalizeFlickTextForMatching(@Nonnull final String value) {
         return value
+                .replace("\u200C", "") // ZWNJ: ignore for prefix matching
+                .replace("\u200D", "") // ZWJ: ignore for prefix matching
+                .replace("\u200E", "") // LTR mark
+                .replace("\u200F", "") // RTL mark
+                .replace("\uFEFF", "") // Zero-width no-break space
+                .replace("\u0640", "") // Tatweel
                 .replace('\u064A', '\u06CC') // Arabic Yeh -> Persian Yeh
                 .replace('\u0649', '\u06CC') // Alef Maksura -> Persian Yeh
                 .replace('\u0643', '\u06A9'); // Arabic Kaf -> Persian Keheh
     }
 
+    private boolean isFlickFormattingCharacter(final int codePoint) {
+        return codePoint == 0x200C || codePoint == 0x200D
+                || codePoint == 0x200E || codePoint == 0x200F
+                || codePoint == 0xFEFF || codePoint == 0x0640;
+    }
+
     /**
-     * Returns the number of already-typed UTF-16 characters at the beginning of
-     * this candidate. Matching is case-insensitive for Latin and tolerant of the
-     * common Arabic/Persian Yeh and Kaf variants.
+     * Finds the original UTF-16 end offset of the typed prefix in a suggestion.
+     * Matching ignores optional Arabic/Persian formatting characters, while the
+     * returned offset still points into the original suggestion string.
      */
-    private int getMatchingFlickPrefixLength(@Nonnull final String prediction) {
-        if (TextUtils.isEmpty(mFlickTypedWord)) {
+    private int getMatchingFlickPrefixEnd(@Nonnull final String prediction) {
+        final String normalizedTypedWord = normalizeFlickTextForMatching(mFlickTypedWord);
+        if (TextUtils.isEmpty(normalizedTypedWord)) {
             return 0;
         }
 
-        final String normalizedPrediction =
-                normalizeFlickTextForMatching(prediction);
-        final String normalizedTypedWord =
-                normalizeFlickTextForMatching(mFlickTypedWord);
+        final StringBuilder normalizedCandidate = new StringBuilder();
+        int originalOffset = 0;
+        int originalPrefixEnd = 0;
 
-        if (normalizedPrediction.length() < normalizedTypedWord.length()
-                || !normalizedPrediction.regionMatches(
+        while (originalOffset < prediction.length()
+                && normalizedCandidate.length() < normalizedTypedWord.length()) {
+            final int codePoint = prediction.codePointAt(originalOffset);
+            final int codePointLength = Character.charCount(codePoint);
+            final int nextOffset = originalOffset + codePointLength;
+
+            if (isFlickFormattingCharacter(codePoint)) {
+                // Keep formatting characters that occur inside the typed prefix
+                // within its span, so the bold/regular boundary is not misplaced.
+                if (normalizedCandidate.length() > 0
+                        && normalizedCandidate.length() < normalizedTypedWord.length()) {
+                    originalPrefixEnd = nextOffset;
+                }
+                originalOffset = nextOffset;
+                continue;
+            }
+
+            final String normalizedCodePoint = normalizeFlickTextForMatching(
+                    new String(Character.toChars(codePoint)));
+            normalizedCandidate.append(normalizedCodePoint);
+            originalPrefixEnd = nextOffset;
+            originalOffset = nextOffset;
+        }
+
+        if (normalizedCandidate.length() != normalizedTypedWord.length()
+                || !normalizedCandidate.toString().regionMatches(
                         true, 0, normalizedTypedWord, 0, normalizedTypedWord.length())) {
             return 0;
         }
 
-        return Math.min(prediction.length(), mFlickTypedWord.length());
+        // Include any formatting marks immediately following the last typed
+        // character in the prefix run. This keeps the run boundary away from
+        // Arabic/Persian shaping controls such as ZWNJ.
+        while (originalOffset < prediction.length()) {
+            final int codePoint = prediction.codePointAt(originalOffset);
+            if (!isFlickFormattingCharacter(codePoint)) {
+                break;
+            }
+            originalOffset += Character.charCount(codePoint);
+            originalPrefixEnd = originalOffset;
+        }
+        return originalPrefixEnd;
     }
 
     /**
-     * Creates a single-line, bidi-aware layout for a flick suggestion. A
-     * StyleSpan bolds the typed prefix without splitting the Arabic/Persian text
-     * into separate drawText calls, so contextual letter shaping is preserved.
+     * Creates a single-line layout for the complete suggestion without splitting
+     * it into styled spans. Arabic/Persian shaping must see the entire word as one
+     * run; the typed prefix is bolded later with drawTextRun using the whole word
+     * as shaping context.
      */
     @Nullable
     private StaticLayout createFlickPredictionLayout(
             @Nonnull final String prediction,
-            @Nonnull final KeyDrawingConfiguration configuration,
-            final float textSize) {
-        final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        textPaint.setTypeface(configuration.getHintTypeface());
-        textPaint.setTextSize(textSize);
-        textPaint.setColor(configuration.getHintColor());
-        textPaint.setTextAlign(Paint.Align.LEFT);
-        textPaint.setTextScaleX(1.0f);
-        textPaint.setStyle(Paint.Style.FILL);
-        textPaint.clearShadowLayer();
-
-        final SpannableString styledPrediction = new SpannableString(prediction);
-        final int boldPrefixLength = getMatchingFlickPrefixLength(prediction);
-        if (boldPrefixLength > 0) {
-            styledPrediction.setSpan(
-                    new StyleSpan(Typeface.BOLD),
-                    0,
-                    boldPrefixLength,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            );
-        }
-
+            @Nonnull final TextPaint textPaint) {
         final int layoutWidth = Math.max(1, getWidth());
         final StaticLayout layout = StaticLayout.Builder.obtain(
-                        styledPrediction, 0, styledPrediction.length(), textPaint, layoutWidth)
+                        prediction, 0, prediction.length(), textPaint, layoutWidth)
                 .setAlignment(Layout.Alignment.ALIGN_CENTER)
                 .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
                 .setIncludePad(false)
@@ -549,14 +583,24 @@ public class KeyboardView extends View {
             paint.setTextScaleX(1.0f);
             paint.setStyle(Paint.Style.FILL);
 
+            final TextPaint predictionPaint = new TextPaint(paint);
+            predictionPaint.setAntiAlias(true);
+            predictionPaint.setTypeface(configuration.getHintTypeface());
+            predictionPaint.setTextSize(textSize);
+            predictionPaint.setColor(configuration.getHintColor());
+            predictionPaint.setTextAlign(Paint.Align.LEFT);
+            predictionPaint.setTextScaleX(1.0f);
+            predictionPaint.setStyle(Paint.Style.FILL);
+            predictionPaint.clearShadowLayer();
+
             final StaticLayout predictionLayout =
-                    createFlickPredictionLayout(prediction, configuration, textSize);
+                    createFlickPredictionLayout(prediction, predictionPaint);
             if (predictionLayout == null) {
                 continue;
             }
 
-            // StaticLayout measures the complete shaped word, including the bold
-            // prefix, and correctly handles both LTR and RTL scripts.
+            // Measure the complete word in its normal weight. The bold prefix is
+            // overdrawn with fake-bold later, so its geometry remains unchanged.
             final float textWidth = predictionLayout.getLineWidth(0);
             if (textWidth <= 0.0f) {
                 continue;
@@ -573,20 +617,28 @@ public class KeyboardView extends View {
 
             // Keep a real three-character gap, not a fixed number of pixels.
             final float averageCharacterWidth = Math.max(
-                    paint.measureText("n"),
-                    paint.measureText("م")
+                    predictionPaint.measureText("n"),
+                    predictionPaint.measureText("م")
             );
             final float minimumGap = Math.max(
                     3.0f * averageCharacterWidth,
                     12.0f * density
             );
 
+            final int boldPrefixLength = getMatchingFlickPrefixEnd(prediction);
+            final boolean isRtl = TextDirectionHeuristics.FIRSTSTRONG_LTR.isRtl(
+                    prediction, 0, prediction.length());
+
             candidates.put(key, new FlickPredictionInfo(
                     key,
                     centerX,
                     textWidth,
                     minimumGap,
-                    predictionLayout
+                    predictionLayout,
+                    prediction,
+                    predictionPaint,
+                    boldPrefixLength,
+                    isRtl
             ));
         }
 
@@ -655,18 +707,43 @@ public class KeyboardView extends View {
 
         for (final FlickPredictionInfo info : mFlickPredictionRenderInfo.values()) {
             final float keyTop = info.key.getY() + getPaddingTop();
-
-            // Keep the existing vertical placement: the visible glyphs sit just
-            // above the key, with the same small gap as the previous version.
             final float gapAboveKey = 0.1f * density;
             final float baseline = keyTop - gapAboveKey - info.layout.getLineDescent(0);
             final float layoutTop = baseline - info.layout.getLineBaseline(0);
+            final float layoutLeft = info.centerX - layoutWidth * 0.5f;
 
             canvas.save();
-            // ALIGN_CENTER centers the whole bidi-aware line in the keyboard-wide
-            // layout. Translating the layout centers that line over its target key.
-            canvas.translate(info.centerX - layoutWidth * 0.5f, layoutTop);
+            canvas.translate(layoutLeft, layoutTop);
+
+            // Draw the whole suggestion as one unstyled run first. Arabic/Persian
+            // letters therefore receive normal contextual shaping across the word.
             info.layout.draw(canvas);
+
+            // Overdraw only the typed prefix in fake bold. drawTextRun receives
+            // the entire word as context, so the final typed letter keeps the
+            // correct joined form with the following character (e.g. "تو").
+            if (info.boldPrefixLength > 0
+                    && info.boldPrefixLength <= info.prediction.length()) {
+                final TextPaint boldPaint = new TextPaint(info.textPaint);
+                boldPaint.setFakeBoldText(true);
+                boldPaint.setTextAlign(info.isRtl ? Paint.Align.RIGHT : Paint.Align.LEFT);
+                boldPaint.clearShadowLayer();
+
+                final float prefixOriginX = info.layout.getPrimaryHorizontal(0);
+                final float prefixBaseline = info.layout.getLineBaseline(0);
+                canvas.drawTextRun(
+                        info.prediction,
+                        0,
+                        info.boldPrefixLength,
+                        0,
+                        info.prediction.length(),
+                        prefixOriginX,
+                        prefixBaseline,
+                        info.isRtl,
+                        boldPaint
+                );
+            }
+
             canvas.restore();
         }
     }
