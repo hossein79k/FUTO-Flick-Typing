@@ -604,13 +604,17 @@ fun startFlickTypingSettingsObserver() {
 
     latinIME.lifecycleScope.launch {
         latinIME.getSettingFlow(FlickTypingEnabled).collect { enabled ->
+            val currentSuggestedWords = suggestedWords.value
             val predictions = if (enabled) {
-                buildFlickSuggestionMap(suggestedWords.value)
+                buildFlickSuggestionMap(currentSuggestedWords)
             } else {
                 emptyMap()
             }
 
-            latinIME.latinIMELegacy.setFlickSuggestions(predictions)
+            latinIME.latinIMELegacy.setFlickSuggestions(
+                predictions,
+                getFlickTypedWord(currentSuggestedWords)
+            )
         }
     }
 }
@@ -1489,6 +1493,13 @@ fun startFlickTypingSettingsObserver() {
         this.shouldShowSuggestionStrip.value = shouldShowSuggestionsStrip
     }
 
+    private fun getFlickTypedWord(suggestedWords: SuggestedWords?): String {
+        if (suggestedWords == null || suggestedWords.mIsObsoleteSuggestions) {
+            return ""
+        }
+        return suggestedWords.mTypedWordInfo?.mWord.orEmpty()
+    }
+
     private fun buildFlickSuggestionMap(suggestedWords: SuggestedWords?): Map<Int, String> {
         if (suggestedWords == null || suggestedWords.mIsObsoleteSuggestions) return emptyMap()
 
@@ -1526,7 +1537,10 @@ fun startFlickTypingSettingsObserver() {
         } else {
             emptyMap()
         }
-        latinIME.latinIMELegacy.setFlickSuggestions(flickSuggestions)
+        latinIME.latinIMELegacy.setFlickSuggestions(
+            flickSuggestions,
+            getFlickTypedWord(suggestedWords)
+        )
 
         if(currentNotice.value != null && suggestedWords?.isEmpty != true) {
             if(numSuggestionsSinceNotice > 0) {
