@@ -26,6 +26,7 @@ import android.graphics.Paint.Align;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
@@ -128,6 +129,8 @@ public class KeyboardView extends View {
     private final Paint mPaint = new Paint();
     private final Paint.FontMetrics mFontMetrics = new Paint.FontMetrics();
     private Map<Integer, String> mFlickSuggestions = new HashMap<>();
+    // Prefix currently typed by the user; this part is rendered in bold.
+    private String mFlickTypedWord = "";
     private final Map<Key, FlickPredictionInfo> mFlickPredictionRenderInfo = new HashMap<>();
 
     private static final class FlickPredictionInfo {
@@ -263,9 +266,20 @@ public class KeyboardView extends View {
      * next letter (lowercase where the script has case), and the value is the complete word.
      */
     public void setFlickSuggestions(@Nullable final Map<Integer, String> suggestions) {
+        setFlickSuggestions(suggestions, "");
+    }
+
+    /**
+     * Updates live word predictions and the prefix already typed by the user.
+     * The typed prefix is drawn in bold while the remaining part stays regular.
+     */
+    public void setFlickSuggestions(
+            @Nullable final Map<Integer, String> suggestions,
+            @Nullable final String typedWord) {
         mFlickSuggestions = suggestions == null
                 ? new HashMap<>()
                 : new HashMap<>(suggestions);
+        mFlickTypedWord = typedWord == null ? "" : typedWord;
         applyFlickSuggestions();
     }
 
@@ -399,6 +413,43 @@ public class KeyboardView extends View {
     }
 
     /**
+     * Returns the matching part of a prediction that has already been typed.
+     * The returned text uses the candidate's original capitalization.
+     */
+    @Nonnull
+    private String getMatchingFlickPrefix(@Nonnull final String prediction) {
+        if (TextUtils.isEmpty(mFlickTypedWord)
+                || prediction.length() < mFlickTypedWord.length()
+                || !prediction.regionMatches(
+                        true, 0, mFlickTypedWord, 0, mFlickTypedWord.length())) {
+            return "";
+        }
+        return prediction.substring(0, mFlickTypedWord.length());
+    }
+
+    /**
+     * Measures the prediction exactly as it will be rendered: typed prefix bold,
+     * remaining characters regular.
+     */
+    private float measureFlickPredictionWidth(
+            @Nonnull final Paint paint,
+            @Nonnull final String prediction) {
+        final Typeface regularTypeface = paint.getTypeface();
+        final String boldPrefix = getMatchingFlickPrefix(prediction);
+        final String regularSuffix = prediction.substring(boldPrefix.length());
+
+        float width = 0.0f;
+        if (!boldPrefix.isEmpty()) {
+            paint.setTypeface(Typeface.create(regularTypeface, Typeface.BOLD));
+            width += paint.measureText(boldPrefix);
+        }
+
+        paint.setTypeface(regularTypeface);
+        width += paint.measureText(regularSuffix);
+        return width;
+    }
+
+    /**
      * Selects predictions so that their words never touch. The longest words get
      * priority, and at least three character-widths are kept between neighboring
      * words on the same keyboard row.
@@ -447,7 +498,7 @@ public class KeyboardView extends View {
             paint.setTextScaleX(1.0f);
             paint.setStyle(Paint.Style.FILL);
 
-            final float textWidth = paint.measureText(prediction);
+            final float textWidth = measureFlickPredictionWidth(paint, prediction);
             if (textWidth <= 0.0f) {
                 continue;
             }
@@ -567,17 +618,42 @@ public class KeyboardView extends View {
             final float gapAboveKey = 0.1f * density;
             final float baseline = keyTop - gapAboveKey - textBounds.bottom;
 
+            final Typeface regularTypeface = info.configuration.getHintTypeface();
+            final Typeface boldTypeface = Typeface.create(regularTypeface, Typeface.BOLD);
+            final String boldPrefix = getMatchingFlickPrefix(info.text);
+            final String regularSuffix = info.text.substring(boldPrefix.length());
+
+            paint.setTextAlign(Align.LEFT);
+
+            float boldPrefixWidth = 0.0f;
+            if (!boldPrefix.isEmpty()) {
+                paint.setTypeface(boldTypeface);
+                boldPrefixWidth = paint.measureText(boldPrefix);
+            }
+
+            paint.setTypeface(regularTypeface);
+            final float regularSuffixWidth = paint.measureText(regularSuffix);
+            final float totalTextWidth = boldPrefixWidth + regularSuffixWidth;
+            final float startX = info.centerX - totalTextWidth * 0.5f;
+
+            if (!boldPrefix.isEmpty()) {
+                paint.setTypeface(boldTypeface);
+                canvas.drawText(boldPrefix, startX, baseline, paint);
+            }
+
+            paint.setTypeface(regularTypeface);
             canvas.drawText(
-                    info.text,
-                    0,
-                    info.text.length(),
-                    info.centerX,
+                    regularSuffix,
+                    startX + boldPrefixWidth,
                     baseline,
                     paint
             );
+
+            paint.setTextAlign(Align.CENTER);
         }
 
         paint.setTextScaleX(1.0f);
+        paint.setTextAlign(Align.CENTER);
         paint.clearShadowLayer();
     }
 
