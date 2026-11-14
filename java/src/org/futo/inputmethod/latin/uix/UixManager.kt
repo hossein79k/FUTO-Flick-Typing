@@ -1500,11 +1500,71 @@ fun startFlickTypingSettingsObserver() {
         return suggestedWords.mTypedWordInfo?.mWord.orEmpty()
     }
 
+    private fun isFlickFormattingCharacter(codePoint: Int): Boolean {
+        return codePoint == 0x200C || codePoint == 0x200D ||
+            codePoint == 0x200E || codePoint == 0x200F ||
+            codePoint == 0xFEFF || codePoint == 0x0640
+    }
+
+    private fun normalizeFlickCodePoint(codePoint: Int): String {
+        if (isFlickFormattingCharacter(codePoint)) return ""
+
+        return String(Character.toChars(codePoint))
+            .replace('ي', 'ی') // Arabic Yeh -> Persian Yeh
+            .replace('ى', 'ی') // Alef Maksura -> Persian Yeh
+            .replace('ك', 'ک') // Arabic Kaf -> Persian Keheh
+    }
+
     private fun normalizeFlickWordForMatching(word: String): String {
-        return word
-            .replace('\u064A', '\u06CC') // Arabic Yeh -> Persian Yeh
-            .replace('\u0649', '\u06CC') // Alef Maksura -> Persian Yeh
-            .replace('\u0643', '\u06A9') // Arabic Kaf -> Persian Keheh
+        val normalized = StringBuilder()
+        var offset = 0
+        while (offset < word.length) {
+            val codePoint = word.codePointAt(offset)
+            normalized.append(normalizeFlickCodePoint(codePoint))
+            offset += Character.charCount(codePoint)
+        }
+        return normalized.toString()
+    }
+
+    /**
+     * Returns the first character after the typed prefix in the original
+     * candidate. Formatting marks are ignored for matching, but the original
+     * candidate is retained for rendering so Persian ZWNJ usage is not rewritten.
+     */
+    private fun getNextFlickCodePointAfterPrefix(
+        candidate: String,
+        normalizedTypedWord: String
+    ): Int? {
+        if (normalizedTypedWord.isEmpty()) return null
+
+        val matchedPrefix = StringBuilder()
+        var offset = 0
+        while (offset < candidate.length) {
+            val codePoint = candidate.codePointAt(offset)
+            offset += Character.charCount(codePoint)
+
+            val normalizedPart = normalizeFlickCodePoint(codePoint)
+            if (normalizedPart.isEmpty()) continue
+
+            matchedPrefix.append(normalizedPart)
+            if (matchedPrefix.length > normalizedTypedWord.length) return null
+
+            if (matchedPrefix.length == normalizedTypedWord.length) {
+                if (!matchedPrefix.toString().equals(normalizedTypedWord, ignoreCase = true)) {
+                    return null
+                }
+
+                // Do not let a ZWNJ/ZWJ or direction mark become the key lookup.
+                while (offset < candidate.length) {
+                    val nextCodePoint = candidate.codePointAt(offset)
+                    if (!isFlickFormattingCharacter(nextCodePoint)) break
+                    offset += Character.charCount(nextCodePoint)
+                }
+
+                return if (offset < candidate.length) candidate.codePointAt(offset) else null
+            }
+        }
+        return null
     }
 
     private fun buildFlickSuggestionMap(suggestedWords: SuggestedWords?): Map<Int, String> {
@@ -1514,20 +1574,16 @@ fun startFlickTypingSettingsObserver() {
         if (typedWord.isNullOrBlank()) return emptyMap()
 
         val normalizedTypedWord = normalizeFlickWordForMatching(typedWord)
+        if (normalizedTypedWord.isEmpty()) return emptyMap()
+
         val predictions = LinkedHashMap<Int, String>()
         for (index in 0 until suggestedWords.size()) {
             val candidate = suggestedWords.getWord(index)
-            val normalizedCandidate = normalizeFlickWordForMatching(candidate)
+            val nextCodePoint = getNextFlickCodePointAfterPrefix(
+                candidate,
+                normalizedTypedWord
+            ) ?: continue
 
-            if (normalizedCandidate.length <= normalizedTypedWord.length ||
-                !normalizedCandidate.regionMatches(
-                    0, normalizedTypedWord, 0, normalizedTypedWord.length, ignoreCase = true
-                )
-            ) {
-                continue
-            }
-
-            val nextCodePoint = normalizedCandidate.codePointAt(normalizedTypedWord.length)
             if (!Character.isLetter(nextCodePoint)) continue
 
             val keyCode = Character.toLowerCase(nextCodePoint)
