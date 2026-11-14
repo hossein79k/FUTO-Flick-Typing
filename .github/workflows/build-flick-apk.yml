@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - flick-font-size-test
     paths:
       - "java/src/**"
       - "java/res/values/strings.xml"
@@ -39,7 +40,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
-        
 
       - name: Install Android build components
         run: |
