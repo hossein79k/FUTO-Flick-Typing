@@ -1500,28 +1500,41 @@ fun startFlickTypingSettingsObserver() {
         return suggestedWords.mTypedWordInfo?.mWord.orEmpty()
     }
 
+    private fun normalizeFlickWordForMatching(word: String): String {
+        return word
+            .replace('\u064A', '\u06CC') // Arabic Yeh -> Persian Yeh
+            .replace('\u0649', '\u06CC') // Alef Maksura -> Persian Yeh
+            .replace('\u0643', '\u06A9') // Arabic Kaf -> Persian Keheh
+    }
+
     private fun buildFlickSuggestionMap(suggestedWords: SuggestedWords?): Map<Int, String> {
         if (suggestedWords == null || suggestedWords.mIsObsoleteSuggestions) return emptyMap()
 
         val typedWord = suggestedWords.mTypedWordInfo?.mWord
         if (typedWord.isNullOrBlank()) return emptyMap()
 
+        val normalizedTypedWord = normalizeFlickWordForMatching(typedWord)
         val predictions = LinkedHashMap<Int, String>()
         for (index in 0 until suggestedWords.size()) {
             val candidate = suggestedWords.getWord(index)
-            if (candidate.length <= typedWord.length ||
-                !candidate.regionMatches(0, typedWord, 0, typedWord.length, ignoreCase = true)
+            val normalizedCandidate = normalizeFlickWordForMatching(candidate)
+
+            if (normalizedCandidate.length <= normalizedTypedWord.length ||
+                !normalizedCandidate.regionMatches(
+                    0, normalizedTypedWord, 0, normalizedTypedWord.length, ignoreCase = true
+                )
             ) {
                 continue
             }
 
-            val nextCodePoint = candidate.codePointAt(typedWord.length)
+            val nextCodePoint = normalizedCandidate.codePointAt(normalizedTypedWord.length)
             if (!Character.isLetter(nextCodePoint)) continue
 
             val keyCode = Character.toLowerCase(nextCodePoint)
             if (!predictions.containsKey(keyCode)) {
                 // SuggestedWords is already ranked, so the first word for each next letter is
-                // the best-ranked candidate for that key.
+                // the best-ranked candidate for that key. Keep the original candidate text
+                // for display; normalization is only used for matching and key lookup.
                 predictions[keyCode] = candidate
             }
         }
