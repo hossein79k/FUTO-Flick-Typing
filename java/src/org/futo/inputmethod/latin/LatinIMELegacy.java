@@ -113,6 +113,7 @@ public class LatinIMELegacy implements KeyboardActionListener,
     private final InputMethodService mInputMethodService;
     private final IMEManager mImeManager;
     private Map<Integer, String> mFlickSuggestions = Collections.emptyMap();
+    private String mFlickTypedWord = "";
 
     static final String TAG = LatinIMELegacy.class.getSimpleName();
     private static final boolean TRACE = false;
@@ -352,19 +353,27 @@ public class LatinIMELegacy implements KeyboardActionListener,
     }
 
     public void setFlickSuggestions(@Nullable final Map<Integer, String> suggestions) {
+        setFlickSuggestions(suggestions, "");
+    }
+
+    public void setFlickSuggestions(
+            @Nullable final Map<Integer, String> suggestions,
+            @Nullable final String typedWord) {
         mFlickSuggestions = suggestions == null
                 ? Collections.emptyMap()
                 : new java.util.HashMap<>(suggestions);
+        mFlickTypedWord = typedWord == null ? "" : typedWord;
+
         final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
         if (mainKeyboardView != null) {
-            mainKeyboardView.setFlickSuggestions(mFlickSuggestions);
+            mainKeyboardView.setFlickSuggestions(mFlickSuggestions, mFlickTypedWord);
         }
     }
 
     public void updateMainKeyboardViewSettings() {
         final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
         SettingsValues currentSettingsValues = mSettings.getCurrent();
-        mainKeyboardView.setFlickSuggestions(mFlickSuggestions);
+        mainKeyboardView.setFlickSuggestions(mFlickSuggestions, mFlickTypedWord);
 
         mainKeyboardView.setImeAllowsGestureInput(
                 mImeManager.getActiveIME(currentSettingsValues).isGestureHandlingAvailable());
@@ -384,7 +393,7 @@ public class LatinIMELegacy implements KeyboardActionListener,
         final KeyboardSwitcher switcher = mKeyboardSwitcher;
         switcher.updateKeyboardTheme(mDisplayContext);
         final MainKeyboardView mainKeyboardView = switcher.getMainKeyboardView();
-        mainKeyboardView.setFlickSuggestions(mFlickSuggestions);
+        mainKeyboardView.setFlickSuggestions(mFlickSuggestions, mFlickTypedWord);
         // If we are starting input in a different text field from before, we'll have to reload
         // settings, so currentSettingsValues can't be final.
         SettingsValues currentSettingsValues = mSettings.getCurrent();
