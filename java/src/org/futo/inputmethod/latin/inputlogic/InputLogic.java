@@ -407,8 +407,14 @@ public final class InputLogic {
 
         postUpdateSuggestionStrip(SuggestedWords.INPUT_STYLE_NONE);
         final String text = performSpecificTldProcessingOnTextInput(rawText);
-        if (SpaceState.PHANTOM == mSpaceState) {
+        // Keep normal text-input behavior unchanged. A Flick completion uses the same
+        // separator handling as a manually selected suggestion, so the next word can be typed
+        // immediately without inserting a duplicate space.
+        if (SpaceState.PHANTOM == mSpaceState && !isFlickWordCompletion) {
             insertAutomaticSpaceIfOptionsAndTextAllow(settingsValues);
+        }
+        if (isFlickWordCompletion) {
+            insertOrSetPhantomSpace(settingsValues);
         }
 
         if(event.mKeyCode == Constants.CODE_OUTPUT_TEXT_WITH_SPACES) {
