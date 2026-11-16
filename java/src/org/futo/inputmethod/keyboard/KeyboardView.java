@@ -29,7 +29,14 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.StaticLayout;
+import android.text.TextDirectionHeuristics;
+import android.text.TextPaint;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -128,32 +135,28 @@ public class KeyboardView extends View {
     private final Paint mPaint = new Paint();
     private final Paint.FontMetrics mFontMetrics = new Paint.FontMetrics();
     private Map<Integer, String> mFlickSuggestions = new HashMap<>();
+    // Prefix currently typed by the user; it stays at full hint-color opacity.
+    private String mFlickTypedWord = "";
     private final Map<Key, FlickPredictionInfo> mFlickPredictionRenderInfo = new HashMap<>();
 
     private static final class FlickPredictionInfo {
         final Key key;
-        final String text;
-        final KeyDrawingConfiguration configuration;
         final float centerX;
         final float textWidth;
         final float minimumGap;
-        final float textSize;
+        final StaticLayout layout;
 
         FlickPredictionInfo(
                 final Key key,
-                final String text,
-                final KeyDrawingConfiguration configuration,
                 final float centerX,
                 final float textWidth,
                 final float minimumGap,
-                final float textSize) {
+                @Nonnull final StaticLayout layout) {
             this.key = key;
-            this.text = text;
-            this.configuration = configuration;
             this.centerX = centerX;
             this.textWidth = textWidth;
             this.minimumGap = minimumGap;
-            this.textSize = textSize;
+            this.layout = layout;
         }
     }
 
@@ -263,9 +266,20 @@ public class KeyboardView extends View {
      * next letter (lowercase where the script has case), and the value is the complete word.
      */
     public void setFlickSuggestions(@Nullable final Map<Integer, String> suggestions) {
+        setFlickSuggestions(suggestions, "");
+    }
+
+    /**
+     * Updates live word predictions and the prefix already typed by the user.
+     * The typed prefix stays bright while the remaining suggestion is slightly dimmed.
+     */
+    public void setFlickSuggestions(
+            @Nullable final Map<Integer, String> suggestions,
+            @Nullable final String typedWord) {
         mFlickSuggestions = suggestions == null
                 ? new HashMap<>()
                 : new HashMap<>(suggestions);
+        mFlickTypedWord = typedWord == null ? "" : typedWord;
         applyFlickSuggestions();
     }
 
@@ -275,12 +289,11 @@ public class KeyboardView extends View {
             return;
         }
 
+        // Flick words are now rendered only by the bidi-aware overlay below.
+        // Clear the legacy per-key value so MainKeyboardView's older on-key
+        // drawText path cannot paint a second, unshaped copy over the colored text.
         for (final Key key : keyboard.getSortedKeys()) {
-            final int code = key.getCode();
-            final String prediction = Character.isLetter(code)
-                    ? mFlickSuggestions.get(Character.toLowerCase(code))
-                    : null;
-            key.setFlickPrediction(prediction);
+            key.setFlickPrediction(null);
         }
         invalidateAllKeys();
     }
@@ -399,6 +412,102 @@ public class KeyboardView extends View {
     }
 
     /**
+     * Normalize common Arabic forms used interchangeably in Persian input. These
+     * replacements are one code unit each, so the original prefix length remains
+     * valid when the matching text is rendered.
+     */
+    @Nonnull
+    private String normalizeFlickTextForMatching(@Nonnull final String value) {
+        return value
+                .replace('\u064A', '\u06CC') // Arabic Yeh -> Persian Yeh
+                .replace('\u0649', '\u06CC') // Alef Maksura -> Persian Yeh
+                .replace('\u0643', '\u06A9'); // Arabic Kaf -> Persian Keheh
+    }
+
+    /**
+     * Returns the number of already-typed UTF-16 characters at the beginning of
+     * this candidate. Matching is case-insensitive for Latin and tolerant of the
+     * common Arabic/Persian Yeh and Kaf variants.
+     */
+    private int getMatchingFlickPrefixLength(@Nonnull final String prediction) {
+        if (TextUtils.isEmpty(mFlickTypedWord)) {
+            return 0;
+        }
+
+        final String normalizedPrediction =
+                normalizeFlickTextForMatching(prediction);
+        final String normalizedTypedWord =
+                normalizeFlickTextForMatching(mFlickTypedWord);
+
+        if (normalizedPrediction.length() < normalizedTypedWord.length()
+                || !normalizedPrediction.regionMatches(
+                        true, 0, normalizedTypedWord, 0, normalizedTypedWord.length())) {
+            return 0;
+        }
+
+        return Math.min(prediction.length(), mFlickTypedWord.length());
+    }
+
+    /**
+     * Creates a single-line, bidi-aware layout for a flick suggestion.
+     * A ForegroundColorSpan softens only the untyped suffix without splitting
+     * Arabic/Persian text into separate drawText calls, preserving contextual shaping.
+     */
+    @Nullable
+    private StaticLayout createFlickPredictionLayout(
+            @Nonnull final String prediction,
+            @Nonnull final KeyDrawingConfiguration configuration,
+            final float textSize) {
+        final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setTypeface(configuration.getHintTypeface());
+        textPaint.setTextSize(textSize);
+        textPaint.setColor(configuration.getHintColor());
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTextScaleX(1.0f);
+        textPaint.setStyle(Paint.Style.FILL);
+        textPaint.clearShadowLayer();
+
+        final SpannableString styledPrediction = new SpannableString(prediction);
+        final int typedPrefixLength = getMatchingFlickPrefixLength(prediction);
+        if (typedPrefixLength > 0 && typedPrefixLength < prediction.length()) {
+            // Keep the typed part at the theme's full hint color, and soften only
+            // the remaining letters. Reducing alpha preserves contrast in both
+            // dark and light keyboard themes without changing the typeface.
+            final int hintColor = configuration.getHintColor();
+            final int suffixAlpha = Color.alpha(hintColor) * 190 / 255;
+            final int suffixColor = Color.argb(
+                    suffixAlpha,
+                    Color.red(hintColor),
+                    Color.green(hintColor),
+                    Color.blue(hintColor)
+            );
+            styledPrediction.setSpan(
+                    new ForegroundColorSpan(suffixColor),
+                    typedPrefixLength,
+                    prediction.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+        }
+
+        final int layoutWidth = Math.max(1, getWidth());
+        final StaticLayout layout = StaticLayout.Builder.obtain(
+                        styledPrediction, 0, styledPrediction.length(), textPaint, layoutWidth)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+                .setIncludePad(false)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                .build();
+
+        // Never draw a wrapped or truncated suggestion. It must remain one
+        // complete word, exactly as supplied by the suggestion engine.
+        if (layout.getLineCount() != 1) {
+            return null;
+        }
+        return layout;
+    }
+
+    /**
      * Selects predictions so that their words never touch. The longest words get
      * priority, and at least three character-widths are kept between neighboring
      * words on the same keyboard row.
@@ -422,9 +531,12 @@ public class KeyboardView extends View {
         final Map<Key, FlickPredictionInfo> candidates = new HashMap<>();
 
         for (final Key key : keyboard.getSortedKeys()) {
-            final String prediction = key.getFlickPrediction();
+            final int keyCode = key.getCode();
+            final String prediction = Character.isLetter(keyCode)
+                    ? mFlickSuggestions.get(Character.toLowerCase(keyCode))
+                    : null;
             if (TextUtils.isEmpty(prediction)
-                    || !Character.isLetter(key.getCode())
+                    || !Character.isLetter(keyCode)
                     || isFlickEdgeKey(key)) {
                 continue;
             }
@@ -437,8 +549,8 @@ public class KeyboardView extends View {
 
             // Flick suggestions are intentionally larger than the small key hints.
             final float textSize = Math.max(
-                    15.0f * density,
-                    configuration.getHintSize() * 1.65f
+                    14.0f * density,
+                    configuration.getHintSize() * 1.55f
             );
 
             paint.setAntiAlias(true);
@@ -447,7 +559,15 @@ public class KeyboardView extends View {
             paint.setTextScaleX(1.0f);
             paint.setStyle(Paint.Style.FILL);
 
-            final float textWidth = paint.measureText(prediction);
+            final StaticLayout predictionLayout =
+                    createFlickPredictionLayout(prediction, configuration, textSize);
+            if (predictionLayout == null) {
+                continue;
+            }
+
+            // StaticLayout measures the complete shaped word, including both color
+            // segments, and correctly handles both LTR and RTL scripts.
+            final float textWidth = predictionLayout.getLineWidth(0);
             if (textWidth <= 0.0f) {
                 continue;
             }
@@ -473,12 +593,10 @@ public class KeyboardView extends View {
 
             candidates.put(key, new FlickPredictionInfo(
                     key,
-                    prediction,
-                    configuration,
                     centerX,
                     textWidth,
                     minimumGap,
-                    textSize
+                    predictionLayout
             ));
         }
 
@@ -542,43 +660,25 @@ public class KeyboardView extends View {
             return;
         }
 
-        final Paint paint = mPaint;
         final float density = getResources().getDisplayMetrics().density;
-        final Rect textBounds = new Rect();
+        final float layoutWidth = Math.max(1, getWidth());
 
         for (final FlickPredictionInfo info : mFlickPredictionRenderInfo.values()) {
-            paint.setAntiAlias(true);
-            paint.setTypeface(info.configuration.getHintTypeface());
-            paint.setTextSize(info.textSize);
-            paint.setTextAlign(Align.CENTER);
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(info.configuration.getHintColor());
-            paint.clearShadowLayer();
-            paint.setTextScaleX(1.0f);
-
             final float keyTop = info.key.getY() + getPaddingTop();
 
-            // Measure the actual glyph bounds so the visible bottom of the
-            // suggestion sits just above the key, rather than using the
-            // font's larger line-spacing metrics.
-            textBounds.setEmpty();
-            paint.getTextBounds(info.text, 0, info.text.length(), textBounds);
-
+            // Keep the existing vertical placement: the visible glyphs sit just
+            // above the key, with the same small gap as the previous version.
             final float gapAboveKey = 0.1f * density;
-            final float baseline = keyTop - gapAboveKey - textBounds.bottom;
+            final float baseline = keyTop - gapAboveKey - info.layout.getLineDescent(0);
+            final float layoutTop = baseline - info.layout.getLineBaseline(0);
 
-            canvas.drawText(
-                    info.text,
-                    0,
-                    info.text.length(),
-                    info.centerX,
-                    baseline,
-                    paint
-            );
+            canvas.save();
+            // ALIGN_CENTER centers the whole bidi-aware line in the keyboard-wide
+            // layout. Translating the layout centers that line over its target key.
+            canvas.translate(info.centerX - layoutWidth * 0.5f, layoutTop);
+            info.layout.draw(canvas);
+            canvas.restore();
         }
-
-        paint.setTextScaleX(1.0f);
-        paint.clearShadowLayer();
     }
 
     private boolean maybeAllocateOffscreenBuffer() {
