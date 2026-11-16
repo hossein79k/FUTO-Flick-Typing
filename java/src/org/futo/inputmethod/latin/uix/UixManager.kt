@@ -1,1787 +1,1117 @@
-package org.futo.inputmethod.latin.uix
+/*
+ * Copyright (C) 2010 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-import android.content.ClipDescription
-import android.content.Context
-import android.content.Intent
-import android.content.res.Configuration
-import android.graphics.Rect
-import android.graphics.Typeface
-import android.net.Uri
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.util.Log
-import android.view.KeyEvent
-import android.view.View
-import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InlineSuggestionsResponse
-import android.view.inputmethod.InputConnection
-import android.widget.Toast
-import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.absoluteOffset
-import androidx.compose.foundation.layout.absolutePadding
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.coerceAtLeast
-import androidx.compose.ui.unit.dp
-import androidx.core.view.inputmethod.InputConnectionCompat
-import androidx.core.view.inputmethod.InputContentInfoCompat
-import androidx.lifecycle.LifecycleCoroutineScope
-import androidx.lifecycle.lifecycleScope
-import androidx.navigation.NavHostController
-import androidx.window.layout.FoldingFeature
-import androidx.window.layout.WindowInfoTracker
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import org.futo.inputmethod.accessibility.AccessibilityUtils
-import org.futo.inputmethod.engine.ExpandableSuggestionBarConfiguration
-import org.futo.inputmethod.engine.IMEInterface
-import org.futo.inputmethod.engine.NonExpandableSuggestionBar
-import org.futo.inputmethod.event.Event
-import org.futo.inputmethod.latin.ATLCompat
-import org.futo.inputmethod.latin.AudioAndHapticFeedbackManager
-import org.futo.inputmethod.latin.BuildConfig
-import org.futo.inputmethod.latin.FoldingOptions
-import org.futo.inputmethod.latin.LanguageSwitcherDialog
-import org.futo.inputmethod.latin.LatinIME
-import org.futo.inputmethod.latin.R
-import org.futo.inputmethod.latin.RichInputMethodManager
-import org.futo.inputmethod.latin.SuggestedWords
-import org.futo.inputmethod.latin.SuggestedWords.SuggestedWordInfo
-import org.futo.inputmethod.latin.SupportsNavbarExtension
-import org.futo.inputmethod.latin.common.Constants
-import org.futo.inputmethod.latin.settings.Settings
-import org.futo.inputmethod.latin.suggestions.SuggestionStripViewListener
-import org.futo.inputmethod.latin.uix.actions.ActionEditor
-import org.futo.inputmethod.latin.uix.actions.ActionRegistry
-import org.futo.inputmethod.latin.uix.actions.AllActions
-import org.futo.inputmethod.latin.uix.actions.BugViewerAction
-import org.futo.inputmethod.latin.uix.actions.BugViewerState
-import org.futo.inputmethod.latin.uix.actions.KeyboardModeAction
-import org.futo.inputmethod.latin.uix.actions.PersistentEmojiState
-import org.futo.inputmethod.latin.uix.actions.keyCode
-import org.futo.inputmethod.latin.uix.actions.keyCodeAlt
-import org.futo.inputmethod.latin.uix.resizing.KeyboardResizers
-import org.futo.inputmethod.latin.uix.settings.DataStoreCacheProvider
-import org.futo.inputmethod.latin.uix.settings.pages.ActionBarDisplayedSetting
-import org.futo.inputmethod.latin.uix.settings.pages.InlineAutofillSetting
-import org.futo.inputmethod.latin.uix.settings.useDataStore
-import org.futo.inputmethod.latin.uix.theme.KeyboardSurfaceShaderBackground
-import org.futo.inputmethod.latin.uix.theme.Typography
-import org.futo.inputmethod.latin.uix.theme.UixThemeAuto
-import org.futo.inputmethod.latin.uix.theme.UixThemeWrapper
-import org.futo.inputmethod.updates.autoDeferManualUpdateIfNeeded
-import org.futo.inputmethod.updates.deferManualUpdate
-import org.futo.inputmethod.updates.isManualUpdateTimeExpired
-import org.futo.inputmethod.updates.openManualUpdateCheck
-import org.futo.inputmethod.updates.retrieveSavedLastUpdateCheckResult
-import org.futo.inputmethod.v2keyboard.ComputedKeyboardSize
-import org.futo.inputmethod.v2keyboard.getPrimaryLayoutOverride
-import org.futo.inputmethod.v2keyboard.FloatingKeyboardSize
-import org.futo.inputmethod.v2keyboard.KeyboardSizingCalculator
-import org.futo.inputmethod.v2keyboard.OneHandedDirection
-import org.futo.inputmethod.v2keyboard.OneHandedKeyboardSize
-import org.futo.inputmethod.v2keyboard.RegularKeyboardSize
-import org.futo.inputmethod.v2keyboard.SplitKeyboardSize
-import org.futo.inputmethod.v2keyboard.opposite
-import java.util.Locale
-import kotlin.math.roundToInt
+package org.futo.inputmethod.keyboard;
 
-val LocalManager = staticCompositionLocalOf<KeyboardManagerForAction> {
-    error("No LocalManager provided")
-}
+import android.content.Context;
+import android.content.res.TypedArray;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Paint.Align;
+import android.graphics.PorterDuff;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.NinePatchDrawable;
+import android.os.Build;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.StaticLayout;
+import android.text.TextDirectionHeuristics;
+import android.text.TextPaint;
+import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
+import android.util.AttributeSet;
+import android.view.View;
 
-val LocalThemeProvider = compositionLocalOf<DynamicThemeProvider> {
-    error("No LocalThemeProvider provided")
-}
+import org.futo.inputmethod.keyboard.internal.KeyDrawParams;
+import org.futo.inputmethod.keyboard.internal.KeyVisualAttributes;
+import org.futo.inputmethod.latin.uix.DynamicThemeProvider;
+import org.futo.inputmethod.latin.R;
+import org.futo.inputmethod.latin.common.Constants;
+import org.futo.inputmethod.latin.uix.theme.KeyDrawingConfiguration;
+import org.futo.inputmethod.latin.uix.theme.KeyOutline;
+import org.futo.inputmethod.latin.utils.TypefaceUtils;
 
-val LocalFoldingState = compositionLocalOf<FoldingOptions> {
-    FoldingOptions(null)
-}
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 
-val LocalNavController = compositionLocalOf<NavHostController?> {
-    null
-}
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-private val UixLocaleFollowsSubtypeLocale = true
+/**
+ * A view that renders a virtual {@link Keyboard}.
+ *
+ * @attr ref R.styleable#KeyboardView_keyBackground
+ * @attr ref R.styleable#KeyboardView_functionalKeyBackground
+ * @attr ref R.styleable#KeyboardView_spacebarBackground
+ * @attr ref R.styleable#KeyboardView_spacebarIconWidthRatio
+ * @attr ref R.styleable#Keyboard_Key_keyLabelFlags
+ * @attr ref R.styleable#KeyboardView_keyHintLetterPadding
+ * @attr ref R.styleable#KeyboardView_keyPopupHintLetter
+ * @attr ref R.styleable#KeyboardView_keyPopupHintLetterPadding
+ * @attr ref R.styleable#KeyboardView_keyShiftedLetterHintPadding
+ * @attr ref R.styleable#KeyboardView_keyTextShadowRadius
+ * @attr ref R.styleable#KeyboardView_verticalCorrection
+ * @attr ref R.styleable#Keyboard_Key_keyTypeface
+ * @attr ref R.styleable#Keyboard_Key_keyLetterSize
+ * @attr ref R.styleable#Keyboard_Key_keyLabelSize
+ * @attr ref R.styleable#Keyboard_Key_keyLargeLetterRatio
+ * @attr ref R.styleable#Keyboard_Key_keyLargeLabelRatio
+ * @attr ref R.styleable#Keyboard_Key_keyHintLetterRatio
+ * @attr ref R.styleable#Keyboard_Key_keyShiftedLetterHintRatio
+ * @attr ref R.styleable#Keyboard_Key_keyHintLabelRatio
+ * @attr ref R.styleable#Keyboard_Key_keyLabelOffCenterRatio
+ * @attr ref R.styleable#Keyboard_Key_keyHintLabelOffCenterRatio
+ * @attr ref R.styleable#Keyboard_Key_keyPreviewTextRatio
+ * @attr ref R.styleable#Keyboard_Key_keyTextColor
+ * @attr ref R.styleable#Keyboard_Key_keyTextColorDisabled
+ * @attr ref R.styleable#Keyboard_Key_keyTextShadowColor
+ * @attr ref R.styleable#Keyboard_Key_keyHintLetterColor
+ * @attr ref R.styleable#Keyboard_Key_keyHintLabelColor
+ * @attr ref R.styleable#Keyboard_Key_keyShiftedLetterHintInactivatedColor
+ * @attr ref R.styleable#Keyboard_Key_keyShiftedLetterHintActivatedColor
+ * @attr ref R.styleable#Keyboard_Key_keyPreviewTextColor
+ */
+public class KeyboardView extends View {
+    // XML attributes
+    private final KeyVisualAttributes mKeyVisualAttributes;
+    // Default keyLabelFlags from {@link KeyboardTheme}.
+    // Currently only "alignHintLabelToBottom" is supported.
+    private final int mDefaultKeyLabelFlags;
+    private final float mKeyHintLetterPadding;
+    private final String mKeyPopupHintLetter;
+    private final float mKeyPopupHintLetterPadding;
+    private final float mKeyShiftedLetterHintPadding;
+    private final float mKeyTextShadowRadius;
+    private final float mVerticalCorrection;
+    private final Drawable mKeyboardBackground;
+    protected final DynamicThemeProvider mDrawableProvider;
+    private final float mSpacebarIconWidthRatio;
+    private final Rect mKeyBackgroundPadding = new Rect();
+    private static final float KET_TEXT_SHADOW_RADIUS_DISABLED = -1.0f;
 
-@Composable
-fun navBarHeight(): Dp = with(LocalDensity.current) {
-    if(SupportsNavbarExtension) {
-        WindowInsets.systemBars.getBottom(this).toDp()
-    } else {
-        0.dp
-    }
-}
+    // The maximum key label width in the proportion to the key width.
+    private static final float MAX_LABEL_RATIO = 0.90f;
 
+    // Main keyboard
+    // TODO: Consider having a base keyboard object to make this @Nonnull
+    @Nullable
+    private Keyboard mKeyboard;
+    @Nonnull
+    private final KeyDrawParams mKeyDrawParams = new KeyDrawParams();
 
-data class KeyboardPadding(
-    val left: Dp,
-    val right: Dp
-)
+    // Drawing
+    /** True if all keys should be drawn */
+    private boolean mInvalidateAllKeys;
+    /** The keys that should be drawn */
+    private final HashSet<Key> mInvalidatedKeys = new HashSet<>();
+    /** The working rectangle for clipping */
+    private final Rect mClipRect = new Rect();
+    /** The keyboard bitmap buffer for faster updates */
+    private Bitmap mOffscreenBuffer;
+    /** The canvas for the above mutable keyboard bitmap */
+    @Nonnull
+    private final Canvas mOffscreenCanvas = new Canvas();
+    @Nonnull
+    private final Paint mPaint = new Paint();
+    private final Paint.FontMetrics mFontMetrics = new Paint.FontMetrics();
+    private Map<Integer, String> mFlickSuggestions = new HashMap<>();
+    // Prefix currently typed by the user; it stays at full hint-color opacity.
+    private String mFlickTypedWord = "";
+    private final Map<Key, FlickPredictionInfo> mFlickPredictionRenderInfo = new HashMap<>();
 
-val LocalKeyboardPadding = compositionLocalOf {
-    KeyboardPadding(0.dp, 0.dp)
-}
+    private static final class FlickPredictionInfo {
+        final Key key;
+        final float centerX;
+        final float textWidth;
+        final float minimumGap;
+        final StaticLayout layout;
 
-@Composable
-fun Modifier.safeKeyboardPadding(): Modifier {
-    val padding = LocalKeyboardPadding.current
-
-    return this.absolutePadding(left = padding.left.coerceAtLeast(0.dp), right = padding.right.coerceAtLeast(0.dp))
-}
-
-@Composable
-fun Modifier.keyboardBottomPadding(size: ComputedKeyboardSize): Modifier = with(LocalDensity.current) {
-    this@keyboardBottomPadding.absolutePadding(bottom = size.padding.bottom.toDp())
-}
-
-@Composable
-fun BoxScope.KeyboardBackground(
-    colorScheme: KeyboardColorScheme,
-    computedSize: ComputedKeyboardSize? = null,
-    useThumbnail: Boolean = false,
-) {
-    val backgroundBrush = colorScheme.keyboardBackgroundGradient ?: SolidColor(colorScheme.keyboardSurface)
-    val advanced = colorScheme.extended.advancedThemeOptions
-
-    val shader = advanced.backgroundShader
-    val image = if(useThumbnail) advanced.thumbnailImage else advanced.backgroundImage
-    val rect = advanced.backgroundImageVisibleArea?.let {
-        if(useThumbnail) {
-            Rect(
-                (it.left * advanced.thumbnailScale).roundToInt(),
-                (it.top * advanced.thumbnailScale).roundToInt(),
-                (it.right * advanced.thumbnailScale).roundToInt(),
-                (it.bottom * advanced.thumbnailScale).roundToInt()
-            )
-        } else it
+        FlickPredictionInfo(
+                final Key key,
+                final float centerX,
+                final float textWidth,
+                final float minimumGap,
+                @Nonnull final StaticLayout layout) {
+            this.key = key;
+            this.centerX = centerX;
+            this.textWidth = textWidth;
+            this.minimumGap = minimumGap;
+            this.layout = layout;
+        }
     }
 
-    when {
-        shader != null -> KeyboardSurfaceShaderBackground(shader, modifier = Modifier.matchParentSize())
-        image != null && rect != null -> {
-            val navbarHeight = navBarHeight()
-            Canvas(Modifier.matchParentSize()) {
-                drawRect(colorScheme.keyboardSurface)
+    public KeyboardView(final Context context, final AttributeSet attrs) {
+        this(context, attrs, R.attr.keyboardViewStyle);
+    }
 
-                val fixedWidth = computedSize?.width?.toFloat() ?: size.width
-                val fixedHeight = when {
-                    (computedSize != null) -> computedSize.height + ActionBarHeight.toPx() + navbarHeight.toPx()
-                    else -> size.height
-                }
+    public KeyboardView(final Context context, final AttributeSet attrs, final int defStyle) {
+        super(context, attrs, defStyle);
 
-                val canvasScale = maxOf(fixedWidth / rect.width(), fixedHeight / rect.height())
+        final TypedArray keyboardViewAttr = context.obtainStyledAttributes(attrs,
+                R.styleable.KeyboardView, defStyle, R.style.KeyboardView);
 
-                val offset = Offset(
-                    -rect.left*1f - rect.width()/2f + fixedWidth/2f/canvasScale,
-                    -rect.top*1f - rect.height()/2f + fixedHeight/2f/canvasScale
-                )
+        final TypedArray keyAttr = context.obtainStyledAttributes(attrs,
+                R.styleable.Keyboard_Key, defStyle, R.style.KeyboardView);
 
-                translate(0f, size.height - fixedHeight) {
-                    scale(canvasScale, pivot = Offset.Zero) {
-                        translate(offset.x, offset.y) {
-                            drawImage(image)
-                        }
-                    }
+        mDrawableProvider = DynamicThemeProvider.obtainFromContext(context);
+
+        boolean isMoreKeys = keyAttr.getBoolean(R.styleable.Keyboard_Key_isMoreKey, false);
+        boolean isMoreKeysAction = keyAttr.getBoolean(R.styleable.Keyboard_Key_isAction, false);
+
+        mKeyboardBackground = isMoreKeys ?  mDrawableProvider.getMoreKeysKeyboardBackground() :
+                        mDrawableProvider.getKeyboardBackground();
+        setBackground(null);
+        setBackgroundColor(0);
+
+        mSpacebarIconWidthRatio = keyboardViewAttr.getFloat(
+                R.styleable.KeyboardView_spacebarIconWidthRatio, 1.0f);
+        mKeyHintLetterPadding = keyboardViewAttr.getDimension(
+                R.styleable.KeyboardView_keyHintLetterPadding, 0.0f);
+        mKeyPopupHintLetter = keyboardViewAttr.getString(
+                R.styleable.KeyboardView_keyPopupHintLetter);
+        mKeyPopupHintLetterPadding = keyboardViewAttr.getDimension(
+                R.styleable.KeyboardView_keyPopupHintLetterPadding, 0.0f);
+        mKeyShiftedLetterHintPadding = keyboardViewAttr.getDimension(
+                R.styleable.KeyboardView_keyShiftedLetterHintPadding, 0.0f);
+        mKeyTextShadowRadius = keyboardViewAttr.getFloat(
+                R.styleable.KeyboardView_keyTextShadowRadius, KET_TEXT_SHADOW_RADIUS_DISABLED);
+        mVerticalCorrection = keyboardViewAttr.getDimension(
+                R.styleable.KeyboardView_verticalCorrection, 0.0f);
+        keyboardViewAttr.recycle();
+
+        mDefaultKeyLabelFlags = keyAttr.getInt(R.styleable.Keyboard_Key_keyLabelFlags, 0);
+        mKeyVisualAttributes = KeyVisualAttributes.newInstance(keyAttr, mDrawableProvider);
+
+        if((isMoreKeys || isMoreKeysAction) && mKeyVisualAttributes != null) {
+            mKeyVisualAttributes.mTextColor = mDrawableProvider.getMoreKeysTextColor();
+        }
+
+        keyAttr.recycle();
+
+        mPaint.setAntiAlias(true);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            setForceDarkAllowed(false);
+        }
+    }
+
+    @Nullable
+    public KeyVisualAttributes getKeyVisualAttribute() {
+        return mKeyVisualAttributes;
+    }
+
+    private static void blendAlpha(@Nonnull final Paint paint, final int alpha) {
+        final int color = paint.getColor();
+        paint.setARGB((paint.getAlpha() * alpha) / Constants.Color.ALPHA_OPAQUE,
+                Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    public void setHardwareAcceleratedDrawingEnabled(final boolean enabled) {
+        if (!enabled) return;
+        // TODO: Should use LAYER_TYPE_SOFTWARE when hardware acceleration is off?
+        setLayerType(LAYER_TYPE_HARDWARE, null);
+    }
+
+    /**
+     * Attaches a keyboard to this view. The keyboard can be switched at any time and the
+     * view will re-layout itself to accommodate the keyboard.
+     * @see Keyboard
+     * @see #getKeyboard()
+     * @param keyboard the keyboard to display in this view
+     */
+    public void setKeyboard(@Nonnull final Keyboard keyboard) {
+        mKeyboard = keyboard;
+        final int keyHeight = keyboard.mMostCommonKeyHeight - keyboard.mVerticalGap;
+        final int keyWidth = keyboard.mMostCommonKeyWidth;
+
+        mKeyDrawParams.updateParams(keyWidth, Math.min(keyWidth, keyHeight), mKeyVisualAttributes);
+        mKeyDrawParams.updateParams(keyWidth, Math.min(keyWidth, keyHeight), keyboard.mKeyVisualAttributes);
+        applyFlickSuggestions();
+        invalidateAllKeys();
+        requestLayout();
+    }
+
+    /**
+     * Returns the current keyboard being displayed by this view.
+     * @return the currently attached keyboard
+     * @see #setKeyboard(Keyboard)
+     */
+    @Nullable
+    public Keyboard getKeyboard() {
+        return mKeyboard;
+    }
+
+    /**
+     * Updates live on-key word predictions. The map is keyed by the Unicode code point of the
+     * next letter (lowercase where the script has case), and the value is the complete word.
+     */
+    public void setFlickSuggestions(@Nullable final Map<Integer, String> suggestions) {
+        setFlickSuggestions(suggestions, "");
+    }
+
+    /**
+     * Updates live word predictions and the prefix already typed by the user.
+     * The typed prefix stays bright while the remaining suggestion is slightly dimmed.
+     */
+    public void setFlickSuggestions(
+            @Nullable final Map<Integer, String> suggestions,
+            @Nullable final String typedWord) {
+        mFlickSuggestions = suggestions == null
+                ? new HashMap<>()
+                : new HashMap<>(suggestions);
+        mFlickTypedWord = typedWord == null ? "" : typedWord;
+        applyFlickSuggestions();
+    }
+
+    private void applyFlickSuggestions() {
+        final Keyboard keyboard = getKeyboard();
+        if (keyboard == null) {
+            return;
+        }
+
+        // Flick words are now rendered only by the bidi-aware overlay below.
+        // Clear the legacy per-key value so MainKeyboardView's older on-key
+        // drawText path cannot paint a second, unshaped copy over the colored text.
+        for (final Key key : keyboard.getSortedKeys()) {
+            key.setFlickPrediction(null);
+        }
+        invalidateAllKeys();
+    }
+
+    protected float getVerticalCorrection() {
+        return mVerticalCorrection;
+    }
+
+    @Nonnull
+    protected KeyDrawParams getKeyDrawParams() {
+        return mKeyDrawParams;
+    }
+
+    protected void updateKeyDrawParams(final int keyHeight) {
+        final int keyWidth = mKeyboard.mMostCommonKeyWidth;
+        mKeyDrawParams.updateParams(keyWidth, Math.min(keyWidth, keyHeight), mKeyVisualAttributes);
+    }
+
+    @Override
+    protected void onMeasure(final int widthMeasureSpec, final int heightMeasureSpec) {
+        final Keyboard keyboard = getKeyboard();
+        if (keyboard == null) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            return;
+        }
+        // The main keyboard expands to the entire this {@link KeyboardView}.
+        final int width = keyboard.mOccupiedWidth + getPaddingLeft() + getPaddingRight();
+        final int height = keyboard.mOccupiedHeight + getPaddingTop() + getPaddingBottom();
+        setMeasuredDimension(width, height);
+    }
+
+    @Override
+    protected void onDraw(final Canvas canvas) {
+        super.onDraw(canvas);
+
+        prepareFlickPredictions();
+
+        mKeyboardBackground.setBounds(0, 0, getWidth(), getHeight());
+        mKeyboardBackground.draw(canvas);
+
+        if (canvas.isHardwareAccelerated()) {
+            onDrawKeyboard(canvas);
+            drawFlickPredictions(canvas);
+            return;
+        }
+
+        final boolean bufferNeedsUpdates = mInvalidateAllKeys || !mInvalidatedKeys.isEmpty();
+        if (bufferNeedsUpdates || mOffscreenBuffer == null) {
+            if (maybeAllocateOffscreenBuffer()) {
+                mInvalidateAllKeys = true;
+                // TODO: Stop using the offscreen canvas even when in software rendering
+                mOffscreenCanvas.setBitmap(mOffscreenBuffer);
+            }
+            onDrawKeyboard(mOffscreenCanvas);
+        }
+        canvas.drawBitmap(mOffscreenBuffer, 0.0f, 0.0f, null);
+
+        // Draw Flick suggestions as a separate overlay so later key backgrounds
+        // cannot cover them and cached bitmap redraws cannot leave ghost text.
+        drawFlickPredictions(canvas);
+    }
+
+    /**
+     * Keys on the outer edges are deliberately excluded. Long words on these keys
+     * tend to be clipped by the keyboard bounds.
+     */
+    private boolean isFlickEdgeKey(@Nonnull final Key key) {
+        final int code = key.getCode();
+        final int lowerCode = Character.toLowerCase(code);
+
+        return lowerCode == 'q'
+                || lowerCode == 'p'
+                || code == 0x062C // ج
+                || code == 0x0636 // ض
+                || code == 0x06AF // گ
+                || code == 0x0634 // ش
+                || code == 0x0638 // ظ
+                || code == 0x0686; // چ
+    }
+
+    private KeyDrawingConfiguration getFlickPredictionConfiguration(
+            @Nonnull final Keyboard keyboard,
+            @Nonnull final Key key,
+            @Nonnull final List<Integer> layers) {
+        final KeyDrawParams params = mKeyDrawParams.mayCloneAndUpdateParams(
+                key.getWidth(),
+                Math.min(key.getHeight(), key.getWidth()),
+                key.getVisualAttributes()
+        );
+        params.mAnimAlpha = Constants.Color.ALPHA_OPAQUE;
+
+        KeyDrawingConfiguration selected = null;
+        for (final int layer : layers) {
+            final KeyDrawingConfiguration candidate =
+                    mDrawableProvider.selectKeyDrawingConfiguration(
+                            keyboard, params, key, layer);
+
+            if (candidate == null) {
+                continue;
+            }
+
+            if (selected == null) {
+                selected = candidate;
+            }
+
+            if (Color.alpha(candidate.getHintColor()) > 0) {
+                selected = candidate;
+                break;
+            }
+        }
+
+        if (selected == null || Color.alpha(selected.getHintColor()) == 0) {
+            return null;
+        }
+        return selected;
+    }
+
+    /**
+     * Normalize common Arabic forms used interchangeably in Persian input. These
+     * replacements are one code unit each, so the original prefix length remains
+     * valid when the matching text is rendered.
+     */
+    @Nonnull
+    private String normalizeFlickTextForMatching(@Nonnull final String value) {
+        return value
+                .replace('\u064A', '\u06CC') // Arabic Yeh -> Persian Yeh
+                .replace('\u0649', '\u06CC') // Alef Maksura -> Persian Yeh
+                .replace('\u0643', '\u06A9'); // Arabic Kaf -> Persian Keheh
+    }
+
+    /**
+     * Returns the number of already-typed UTF-16 characters at the beginning of
+     * this candidate. Matching is case-insensitive for Latin and tolerant of the
+     * common Arabic/Persian Yeh and Kaf variants.
+     */
+    private int getMatchingFlickPrefixLength(@Nonnull final String prediction) {
+        if (TextUtils.isEmpty(mFlickTypedWord)) {
+            return 0;
+        }
+
+        final String normalizedPrediction =
+                normalizeFlickTextForMatching(prediction);
+        final String normalizedTypedWord =
+                normalizeFlickTextForMatching(mFlickTypedWord);
+
+        if (normalizedPrediction.length() < normalizedTypedWord.length()
+                || !normalizedPrediction.regionMatches(
+                        true, 0, normalizedTypedWord, 0, normalizedTypedWord.length())) {
+            return 0;
+        }
+
+        return Math.min(prediction.length(), mFlickTypedWord.length());
+    }
+
+    /**
+     * Creates a single-line, bidi-aware layout for a flick suggestion.
+     * A ForegroundColorSpan makes the untyped suffix noticeably dimmer without splitting
+     * Arabic/Persian text into separate drawText calls, preserving contextual shaping.
+     */
+    @Nullable
+    private StaticLayout createFlickPredictionLayout(
+            @Nonnull final String prediction,
+            @Nonnull final KeyDrawingConfiguration configuration,
+            final float textSize) {
+        final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setTypeface(configuration.getHintTypeface());
+        textPaint.setTextSize(textSize);
+        textPaint.setColor(configuration.getHintColor());
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTextScaleX(1.0f);
+        textPaint.setStyle(Paint.Style.FILL);
+        textPaint.clearShadowLayer();
+
+        final SpannableString styledPrediction = new SpannableString(prediction);
+        final int typedPrefixLength = getMatchingFlickPrefixLength(prediction);
+        if (typedPrefixLength > 0 && typedPrefixLength < prediction.length()) {
+            // Keep the typed part at the theme's full hint color, and dim only
+            // the remaining letters. Reducing alpha preserves contrast in both
+            // dark and light keyboard themes without changing the typeface.
+            final int hintColor = configuration.getHintColor();
+            final int suffixAlpha = Color.alpha(hintColor) * 135 / 255;
+            final int suffixColor = Color.argb(
+                    suffixAlpha,
+                    Color.red(hintColor),
+                    Color.green(hintColor),
+                    Color.blue(hintColor)
+            );
+            styledPrediction.setSpan(
+                    new ForegroundColorSpan(suffixColor),
+                    typedPrefixLength,
+                    prediction.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+        }
+
+        final int layoutWidth = Math.max(1, getWidth());
+        final StaticLayout layout = StaticLayout.Builder.obtain(
+                        styledPrediction, 0, styledPrediction.length(), textPaint, layoutWidth)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+                .setIncludePad(false)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                .build();
+
+        // Never draw a wrapped or truncated suggestion. It must remain one
+        // complete word, exactly as supplied by the suggestion engine.
+        if (layout.getLineCount() != 1) {
+            return null;
+        }
+        return layout;
+    }
+
+    /**
+     * Selects predictions so that their words never touch. The longest words get
+     * priority, and at least three character-widths are kept between neighboring
+     * words on the same keyboard row.
+     */
+    private void prepareFlickPredictions() {
+        mFlickPredictionRenderInfo.clear();
+
+        final Keyboard keyboard = getKeyboard();
+        if (keyboard == null) {
+            return;
+        }
+
+        final List<Integer> layers = mDrawableProvider.getLayers();
+        if (layers.isEmpty()) {
+            return;
+        }
+
+        final float density = getResources().getDisplayMetrics().density;
+        final float edgePadding = 3.0f * density;
+        final Paint paint = mPaint;
+        final Map<Key, FlickPredictionInfo> candidates = new HashMap<>();
+
+        for (final Key key : keyboard.getSortedKeys()) {
+            final int keyCode = key.getCode();
+            final String prediction = Character.isLetter(keyCode)
+                    ? mFlickSuggestions.get(Character.toLowerCase(keyCode))
+                    : null;
+            if (TextUtils.isEmpty(prediction)
+                    || !Character.isLetter(keyCode)
+                    || isFlickEdgeKey(key)) {
+                continue;
+            }
+
+            final KeyDrawingConfiguration configuration =
+                    getFlickPredictionConfiguration(keyboard, key, layers);
+            if (configuration == null) {
+                continue;
+            }
+
+            // Flick suggestions are intentionally larger than the small key hints.
+            final float textSize = Math.max(
+                    14.0f * density,
+                    configuration.getHintSize() * 1.55f
+            );
+
+            paint.setAntiAlias(true);
+            paint.setTypeface(configuration.getHintTypeface());
+            paint.setTextSize(textSize);
+            paint.setTextScaleX(1.0f);
+            paint.setStyle(Paint.Style.FILL);
+
+            final StaticLayout predictionLayout =
+                    createFlickPredictionLayout(prediction, configuration, textSize);
+            if (predictionLayout == null) {
+                continue;
+            }
+
+            // StaticLayout measures the complete shaped word, including both color
+            // segments, and correctly handles both LTR and RTL scripts.
+            final float textWidth = predictionLayout.getLineWidth(0);
+            if (textWidth <= 0.0f) {
+                continue;
+            }
+
+            final float centerX = key.getDrawX() + getPaddingLeft()
+                    + key.getDrawWidth() * 0.5f;
+
+            // Do not render a word if it would cross either keyboard edge.
+            if (centerX - textWidth * 0.5f < edgePadding
+                    || centerX + textWidth * 0.5f > getWidth() - edgePadding) {
+                continue;
+            }
+
+            // Keep a real three-character gap, not a fixed number of pixels.
+            final float averageCharacterWidth = Math.max(
+                    paint.measureText("n"),
+                    paint.measureText("م")
+            );
+            final float minimumGap = Math.max(
+                    3.0f * averageCharacterWidth,
+                    12.0f * density
+            );
+
+            candidates.put(key, new FlickPredictionInfo(
+                    key,
+                    centerX,
+                    textWidth,
+                    minimumGap,
+                    predictionLayout
+            ));
+        }
+
+        // Greedy longest-first selection prevents long words such as
+        // "tremendous" from being squeezed between short neighboring words.
+        while (!candidates.isEmpty()) {
+            Key bestKey = null;
+            float bestWidth = -1.0f;
+
+            for (final Key candidateKey : candidates.keySet()) {
+                final FlickPredictionInfo candidate = candidates.get(candidateKey);
+                if (candidate != null
+                        && (candidate.textWidth > bestWidth
+                        || (candidate.textWidth == bestWidth
+                        && (bestKey == null
+                        || candidate.centerX < candidates.get(bestKey).centerX)))) {
+                    bestKey = candidateKey;
+                    bestWidth = candidate.textWidth;
                 }
             }
 
-            Box(Modifier
-                .matchParentSize()
-                .background(backgroundBrush))
-        }
-        else -> Box(Modifier
-            .background(backgroundBrush)
-            .matchParentSize())
-    }
-}
-
-class UixActionKeyboardManager(val uixManager: UixManager, val latinIME: LatinIME) : KeyboardManagerForAction {
-    override fun getContext(): Context {
-        return latinIME
-    }
-
-    override fun getLifecycleScope(): LifecycleCoroutineScope {
-        return latinIME.lifecycleScope
-    }
-
-    override fun createInputTransaction(): ActionInputTransaction {
-        return latinIME.imeManager.createInputTransaction()
-    }
-
-    override fun typeText(v: String) {
-        if(latinIME.isInputConnectionOverridden) {
-            latinIME.getBaseInputConnection()?.commitText(v, 1)
-        } else {
-            latinIME.latinIMELegacy.onTextInput(v)
-        }
-    }
-
-    override fun typeTextSurroundedByWhitespace(v: String) {
-        if(latinIME.isInputConnectionOverridden) {
-            latinIME.getBaseInputConnection()?.commitText(v, 1)
-        } else {
-            latinIME.latinIMELegacy.onTextInputWithSpace(v)
-        }
-    }
-
-    override fun typeUri(
-        uri: Uri,
-        mimeTypes: List<String>,
-        ignoreConnectionOverride: Boolean
-    ): Boolean {
-        if(mimeTypes.isEmpty()) {
-            Log.w("UixManager", "mimeTypes is empty")
-            return false
-        }
-
-        val inputConnection = if(ignoreConnectionOverride) {
-            latinIME.getBaseInputConnection()
-        } else {
-            latinIME.currentInputConnection
-        }
-
-        val editorInfo = if(ignoreConnectionOverride) {
-            latinIME.getBaseInputEditorInfo()
-        } else {
-            latinIME.currentInputEditorInfo
-        }
-
-        if(inputConnection == null || editorInfo == null) return false
-
-        latinIME.grantUriPermission(
-            editorInfo.packageName,
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
-        )
-
-        val description = ClipDescription("", mimeTypes.toTypedArray())
-
-        return InputConnectionCompat.commitContent(
-            inputConnection,
-            editorInfo,
-            InputContentInfoCompat(uri, description, null),
-            InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION,
-            null
-        ).let { result ->
-            if(!result) {
-                val toast = Toast.makeText(
-                    latinIME,
-                    latinIME.getString(R.string.action_clipboard_manager_error_app_image_insertion_unsupported),
-                    Toast.LENGTH_SHORT
-                )
-                toast.show()
+            if (bestKey == null) {
+                break;
             }
 
-            result
-        }
-    }
+            final FlickPredictionInfo candidate = candidates.remove(bestKey);
+            boolean overlapsAnotherPrediction = false;
 
-    private fun mimeTypeMatches(mimeTypePattern: String, schema: String): Boolean {
-        if (mimeTypePattern == schema) return true
-        val patternParts = mimeTypePattern.split('/')
-        val schemaParts = schema.split('/')
-        if (patternParts.size != 2 || schemaParts.size != 2) return false
-        return (patternParts[0] == schemaParts[0] &&
-                (patternParts[1] == "*" || patternParts[1] == schemaParts[1]))
-    }
+            for (final FlickPredictionInfo accepted : mFlickPredictionRenderInfo.values()) {
+                final float sameRowTolerance = Math.max(
+                        2.0f * density,
+                        Math.min(candidate.key.getHeight(), accepted.key.getHeight()) * 0.30f
+                );
 
-    override fun appSupportsImageInsertion(
-        schema: String,
-        ignoreConnectionOverride: Boolean
-    ): Boolean {
-        val editorInfo = if(ignoreConnectionOverride) {
-            latinIME.getBaseInputEditorInfo()
-        } else {
-            latinIME.currentInputEditorInfo
-        }
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            editorInfo?.contentMimeTypes?.any { mimeTypeMatches(it, schema) } == true
-        } else {
-            false
-        }
-    }
-
-    override fun backspace(amount: Int) {
-        for(i in 0 until amount) {
-            latinIME.latinIMELegacy.onCodeInput(
-                Constants.CODE_DELETE,
-                Constants.NOT_A_COORDINATE,
-                Constants.NOT_A_COORDINATE, false
-            )
-        }
-    }
-
-    override fun closeActionWindow() {
-        uixManager.closeActionWindow()
-    }
-
-    override fun forceActionWindowAboveKeyboard(to: Boolean) {
-        uixManager.toggleExpandAction(to)
-    }
-
-    override fun triggerSystemVoiceInput() {
-        latinIME.latinIMELegacy.onCodeInput(
-            Constants.CODE_SHORTCUT,
-            Constants.SUGGESTION_STRIP_COORDINATE,
-            Constants.SUGGESTION_STRIP_COORDINATE,
-            false
-        )
-    }
-
-    override fun getThemeProvider(): DynamicThemeProvider {
-        return latinIME.getDrawableProvider()
-    }
-
-    override fun sendCodePointEvent(codePoint: Int) {
-        latinIME.latinIMELegacy.onCodeInput(codePoint,
-            Constants.NOT_A_COORDINATE,
-            Constants.NOT_A_COORDINATE, false)
-    }
-
-    override fun sendKeyEvent(keyCode: Int, metaState: Int) {
-        val event = Event.createDownUpKeyEvent(keyCode, metaState)
-        latinIME.imeManager.getActiveIME(
-            Settings.getInstance().current
-        ).onEvent(event)
-        //latinIME.inputLogic.sendDownUpKeyEvent(keyCode, metaState)
-    }
-
-    override fun isShifted(): Boolean = latinIME.latinIMELegacy.mKeyboardSwitcher.mState.shifted
-
-    override fun cursorLeft(steps: Int, stepOverWords: Boolean, select: Boolean) {
-        latinIME.imeManager.getActiveIME(
-            Settings.getInstance().current
-        ).onMovePointer(-1, stepOverWords, select)
-        //latinIME.inputLogic.cursorLeft(steps, stepOverWords, select)
-    }
-
-    override fun cursorRight(steps: Int, stepOverWords: Boolean, select: Boolean) {
-        latinIME.imeManager.getActiveIME(
-            Settings.getInstance().current
-        ).onMovePointer( 1, stepOverWords, select)
-        //latinIME.inputLogic.cursorRight(steps, stepOverWords, select)
-    }
-
-    override fun performHapticAndAudioFeedback(code: Int, view: View) {
-        AudioAndHapticFeedbackManager.getInstance().performHapticAndAudioFeedback(code, view)
-    }
-
-    override fun getActiveLocales(): List<Locale> {
-        return RichInputMethodManager.getInstance().currentSubtypeLocales
-    }
-
-    override fun overrideInputConnection(inputConnection: InputConnection, editorInfo: EditorInfo) {
-        latinIME.overrideInputConnection(inputConnection, editorInfo)
-        uixManager.toggleExpandAction(true)
-        uixManager.isInputOverridden.value = true
-    }
-
-    override fun unsetInputConnection(): Boolean {
-        val wasOverridden = uixManager.isInputOverridden.value
-        latinIME.overrideInputConnection(null, null)
-        uixManager.isInputOverridden.value = false
-        return wasOverridden
-    }
-
-    override fun requestDialog(text: String, options: List<DialogRequestItem>, onCancel: () -> Unit) {
-        uixManager.activeDialogRequest.value = ActiveDialogRequest(text, options, onCancel)
-        uixManager.activeDialogRequestDismissed.value = false
-    }
-
-    override fun openInputMethodPicker() {
-        uixManager.showLanguageSwitcher()
-    }
-
-    override fun announce(s: String) {
-        AccessibilityUtils.init(getContext())
-        if(AccessibilityUtils.getInstance().isAccessibilityEnabled && uixManager.composeView != null) {
-            AccessibilityUtils.getInstance().announceForAccessibility(uixManager.composeView, s)
-        }
-    }
-
-    override fun activateAction(action: Action) {
-        uixManager.onActionActivated(action)
-    }
-
-    override fun showActionEditor() {
-        uixManager.showActionEditor()
-    }
-
-    override fun showResizer() {
-        uixManager.resizers.displayResizer()
-
-        if(uixManager.currWindowAction != KeyboardModeAction) {
-            uixManager.closeActionWindow()
-        }
-    }
-
-    override fun getTutorialMode(): TutorialMode {
-        return uixManager.tutorialMode
-    }
-
-    override fun setTutorialArrowPosition(coordinates: LayoutCoordinates) {
-        uixManager.tutorialArrowPosition.value = coordinates
-    }
-
-    override fun markTutorialCompleted() {
-        uixManager.tutorialCompleted.value = true
-    }
-
-    override fun isDeviceLocked(): Boolean {
-        return getContext().isDeviceLocked
-    }
-
-    override fun overrideKeyboardTypeface(typeface: Typeface?) {
-        if(latinIME.getDrawableProvider().typefaceOverride == typeface) return
-        latinIME.getDrawableProvider().typefaceOverride = typeface
-        latinIME.invalidateKeyboard()
-    }
-
-    override fun copyToClipboard(cut: Boolean) {
-        if(cut) {
-            sendKeyEvent(KeyEvent.KEYCODE_X, KeyEvent.META_CTRL_ON)
-        } else {
-            sendKeyEvent(KeyEvent.KEYCODE_C, KeyEvent.META_CTRL_ON)
-        }
-    }
-
-    override fun pasteFromClipboard() {
-        sendKeyEvent(KeyEvent.KEYCODE_V, KeyEvent.META_CTRL_ON)
-        uixManager.dismissQuickClips()
-    }
-
-    override fun getSizingCalculator(): KeyboardSizingCalculator =
-        latinIME.sizingCalculator
-
-    override fun getLatinIMEForDebug(): LatinIME = latinIME
-
-    override fun getCurrentIME(): IMEInterface {
-        return latinIME.imeManager.getActiveIME(Settings.getInstance().current)
-    }
-}
-
-data class ActiveDialogRequest(
-    val text: String,
-    val options: List<DialogRequestItem>,
-    val onCancel: () -> Unit
-)
-
-@RequiresOptIn(level = RequiresOptIn.Level.ERROR, message = "This is for debug purposes only.")
-@Retention(AnnotationRetention.BINARY)
-annotation class DebugOnly
-
-@DebugOnly
-var UixManagerInstanceForDebug: UixManager? = null
-
-class UixManager(private val latinIME: LatinIME) {
-    init {
-        @OptIn(DebugOnly::class)
-        UixManagerInstanceForDebug = this
-    }
-
-    internal val composeView: ComposeView?
-        get() = latinIME.composeView
-
-    private val suggestionStripListener = object : SuggestionStripViewListener {
-        override fun showImportantNoticeContents() {
-            latinIME.latinIMELegacy.showImportantNoticeContents()
-        }
-
-        override fun pickSuggestionManually(word: SuggestedWordInfo?) {
-            if(floatingPreeditEditing.value && floatingPreedit.value != null) {
-                val text = floatingPreeditText.value
-
-                keyboardManagerForAction.unsetInputConnection()
-
-                floatingPreedit.value?.let { preedit ->
-                    preedit.listener.onFinishEdit(preedit.untransform(text), word?.word, word?.mCandidateIndex)
+                if (Math.abs(candidate.key.getY() - accepted.key.getY())
+                        > sameRowTolerance) {
+                    continue;
                 }
 
-                floatingPreeditEditing.value = false
-                floatingPreeditText.value = ""
+                final float requiredDistance =
+                        (candidate.textWidth + accepted.textWidth) * 0.5f
+                                + Math.max(candidate.minimumGap, accepted.minimumGap);
+
+                if (Math.abs(candidate.centerX - accepted.centerX) < requiredDistance) {
+                    overlapsAnotherPrediction = true;
+                    break;
+                }
+            }
+
+            if (!overlapsAnotherPrediction) {
+                mFlickPredictionRenderInfo.put(candidate.key, candidate);
+            }
+        }
+
+        paint.setTextScaleX(1.0f);
+        paint.clearShadowLayer();
+    }
+
+    private void drawFlickPredictions(@Nonnull final Canvas canvas) {
+        if (mFlickPredictionRenderInfo.isEmpty()) {
+            return;
+        }
+
+        final float density = getResources().getDisplayMetrics().density;
+        final float layoutWidth = Math.max(1, getWidth());
+
+        for (final FlickPredictionInfo info : mFlickPredictionRenderInfo.values()) {
+            final float keyTop = info.key.getY() + getPaddingTop();
+
+            // Keep the existing vertical placement: the visible glyphs sit just
+            // above the key, with the same small gap as the previous version.
+            final float gapAboveKey = 0.1f * density;
+            final float baseline = keyTop - gapAboveKey - info.layout.getLineDescent(0);
+            final float layoutTop = baseline - info.layout.getLineBaseline(0);
+
+            canvas.save();
+            // ALIGN_CENTER centers the whole bidi-aware line in the keyboard-wide
+            // layout. Translating the layout centers that line over its target key.
+            canvas.translate(info.centerX - layoutWidth * 0.5f, layoutTop);
+            info.layout.draw(canvas);
+            canvas.restore();
+        }
+    }
+
+    private boolean maybeAllocateOffscreenBuffer() {
+        final int width = getWidth();
+        final int height = getHeight();
+        if (width == 0 || height == 0) {
+            return false;
+        }
+        if (mOffscreenBuffer != null && mOffscreenBuffer.getWidth() == width
+                && mOffscreenBuffer.getHeight() == height) {
+            return false;
+        }
+        freeOffscreenBuffer();
+        mOffscreenBuffer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        return true;
+    }
+
+    private void freeOffscreenBuffer() {
+        setLayerType(LAYER_TYPE_NONE, null);
+
+        mOffscreenCanvas.setBitmap(null);
+        mOffscreenCanvas.setMatrix(null);
+        if (mOffscreenBuffer != null) {
+            mOffscreenBuffer.recycle();
+            mOffscreenBuffer = null;
+        }
+    }
+
+    private void onDrawKeyboard(@Nonnull final Canvas canvas) {
+        final Keyboard keyboard = getKeyboard();
+        if (keyboard == null) {
+            return;
+        }
+
+        final Paint paint = mPaint;
+        final Drawable background = getBackground();
+        // Calculate clip region and set.
+        final boolean drawAllKeys = mInvalidateAllKeys || mInvalidatedKeys.isEmpty();
+        final boolean isHardwareAccelerated = canvas.isHardwareAccelerated();
+        final List<Integer> layers = mDrawableProvider.getLayers();
+        if (drawAllKeys || isHardwareAccelerated || layers.size() > 1) {
+            if (!isHardwareAccelerated && background != null) {
+                // Need to draw keyboard background on {@link #mOffscreenBuffer}.
+                canvas.drawColor(Color.BLACK, PorterDuff.Mode.CLEAR);
+                background.draw(canvas);
+            }
+            // Draw all keys.
+            for(int i=0; i<layers.size(); i++) {
+                int layer = layers.get(i);
+                for (final Key key : keyboard.getSortedKeys()) {
+                    onDrawKey(key, canvas, paint, layer);
+                }
+            }
+        } else {
+            for (final Key key : mInvalidatedKeys) {
+                if (!keyboard.hasKey(key)) {
+                    continue;
+                }
+                if (background != null) {
+                    // Need to redraw key's background on {@link #mOffscreenBuffer}.
+                    final int x = key.getX() + getPaddingLeft();
+                    final int y = key.getY() + getPaddingTop();
+                    mClipRect.set(x, y, x + key.getWidth(), y + key.getHeight());
+                    canvas.save();
+                    canvas.clipRect(mClipRect);
+                    canvas.drawColor(Color.BLACK, PorterDuff.Mode.CLEAR);
+                    background.draw(canvas);
+                    canvas.restore();
+                }
+                onDrawKey(key, canvas, paint, 0);
+            }
+        }
+
+        mInvalidatedKeys.clear();
+        mInvalidateAllKeys = false;
+    }
+
+    private Rect getKeyDrawOffsetAndSize(final Key key, final KeyDrawingConfiguration cfg) {
+        float keyDrawX = key.getDrawX() + getPaddingLeft();
+        float keyDrawY = key.getY() + getPaddingTop();
+
+        float keyWidth = key.getDrawWidth();
+        float keyHeight = key.getHeight();
+
+        final RectF gap = cfg.getBackgroundGap();
+        if(gap != null) {
+            if(gap.left != 1.0f) {
+                keyDrawX = getPaddingLeft() + key.getX() + (key.getHorizontalGap() / 2.0f) * gap.left;
+            }
+            if(gap.left != 1.0f || gap.right != 1.0f) {
+                keyWidth = key.getWidth() - (key.getHorizontalGap() / 2.0f * (gap.left + gap.right - 2.0f));
+            }
+
+            if(gap.top != 1.0f) {
+                keyDrawY = getPaddingTop() + key.getY() + (key.getVerticalGap() / 2.0f) * (gap.top - 1.0f);
+            }
+            if(gap.top != 1.0f || gap.bottom != 1.0f) {
+                keyHeight = key.getHeight() - (key.getVerticalGap() / 2.0f * (gap.top + gap.bottom - 2.0f));
+            }
+        }
+
+        return new Rect(
+            Math.round(keyDrawX),
+            Math.round(keyDrawY),
+            Math.round(keyWidth),
+            Math.round(keyHeight)
+        );
+    }
+
+    private void onDrawKey(@Nonnull final Key key, @Nonnull final Canvas canvas,
+            @Nonnull final Paint paint, int layer) {
+        final KeyVisualAttributes attr = key.getVisualAttributes();
+        final KeyDrawParams params = mKeyDrawParams.mayCloneAndUpdateParams(key.getWidth(),
+                Math.min(key.getHeight(), key.getWidth()), attr);
+        params.mAnimAlpha = Constants.Color.ALPHA_OPAQUE;
+
+        final KeyDrawingConfiguration kdc = mDrawableProvider.selectKeyDrawingConfiguration(mKeyboard, params, key, layer);
+        if (kdc == null) return;
+
+        final Rect drawOffsetAndSize = getKeyDrawOffsetAndSize(key, kdc);
+        canvas.translate(drawOffsetAndSize.left, drawOffsetAndSize.top);
+
+
+        final Drawable background = kdc.getBackground();
+        if (background != null) {
+            onDrawKeyBackground(key, canvas, background, drawOffsetAndSize.right, drawOffsetAndSize.bottom);
+        }
+
+        if(Color.alpha(kdc.getTextColor()) > 0) {
+            onDrawKeyTopVisuals(key, canvas, paint, params, kdc, drawOffsetAndSize.right, drawOffsetAndSize.bottom);
+        }
+
+        canvas.translate(-drawOffsetAndSize.left, -drawOffsetAndSize.top);
+    }
+
+    // Draw key background.
+    protected void onDrawKeyBackground(@Nonnull final Key key, @Nonnull final Canvas canvas,
+            @Nonnull final Drawable background, final int keyWidth, final int keyHeight) {
+        final int bgWidth, bgHeight, bgX, bgY;
+        if (key.needsToKeepBackgroundAspectRatio(mDefaultKeyLabelFlags)
+                // HACK: To disable expanding normal/functional key background.
+                && !key.getHasCustomActionLabel()) {
+            bgWidth = Math.min(keyWidth, keyHeight);
+            bgHeight = Math.min(keyWidth, keyHeight);
+            bgX = (keyWidth - bgWidth) / 2;
+            bgY = (keyHeight - bgHeight) / 2;
+        } else {
+            final Rect padding = new Rect();
+            background.getPadding(padding);
+
+            bgWidth = keyWidth + padding.left + padding.right;
+            bgHeight = keyHeight + padding.top + padding.bottom;
+            bgX = -padding.left;
+            bgY = -padding.top;
+        }
+        final Rect bounds = background.getBounds();
+        if (bgWidth != bounds.right || bgHeight != bounds.bottom) {
+            background.setBounds(0, 0, bgWidth, bgHeight);
+        }
+        canvas.translate(bgX, bgY);
+        background.draw(canvas);
+        canvas.translate(-bgX, -bgY);
+    }
+
+    // Draw key top visuals.
+    protected void onDrawKeyTopVisuals(@Nonnull final Key key, @Nonnull final Canvas canvas,
+            @Nonnull final Paint paint, @Nonnull final KeyDrawParams params, @Nonnull final KeyDrawingConfiguration kdc,
+                                       final int keyWidth, final int keyHeight) {
+        final float centerX = keyWidth * 0.5f;
+        final float centerY = keyHeight * 0.5f;
+
+        // Draw key label.
+        final Drawable icon = kdc.getIcon();
+        final Drawable hintIcon = kdc.getHintIcon();
+        float labelX = centerX;
+        float labelBaseline = centerY;
+        final String label = kdc.getLabel();
+        final Rect bgPadding = kdc.getBackgroundPadding();
+        final KeyOutline outline = kdc.getOutline();
+
+        float keyHintPaddingX = mKeyHintLetterPadding;
+        float keyHintPaddingY = mKeyHintLetterPadding;
+        if((bgPadding.left | bgPadding.right | bgPadding.top | bgPadding.bottom) != 0) {
+            keyHintPaddingX = bgPadding.right;
+            keyHintPaddingY = bgPadding.top;
+        }
+
+        if (label != null && icon == null) {
+            paint.setTypeface(kdc.getTextTypeface());
+            // Slightly enlarge the primary alphabetic characters without changing
+            // the size of action icons or non-letter labels.
+            final float keyLetterScale = Character.isLetter(key.getCode()) ? 1.12f : 1.0f;
+            paint.setTextSize(kdc.getTextSize() * keyLetterScale);
+            final float labelCharHeight = TypefaceUtils.getReferenceCharHeight(paint);
+            final float labelCharWidth = TypefaceUtils.getReferenceCharWidth(paint);
+
+            // Flick suggestions are now outside the key, so keep the main letter
+            // vertically centered in its original position.
+            labelBaseline = centerY + labelCharHeight / 2.0f;
+            if(kdc.getCenteredHint() && kdc.getHintLabel() != null && !key.getHasHintLabel() && !key.getHasShiftedLetterHint()) {
+                labelBaseline += kdc.getTextSize() * 0.1f;
+            }
+
+            // Horizontal label text alignment
+            if (key.isAlignLabelOffCenter()) {
+                // The label is placed off center of the key. Used mainly on "phone number" layout.
+                labelX = centerX + params.mLabelOffCenterRatio * labelCharWidth;
+                paint.setTextAlign(Align.LEFT);
             } else {
-                latinIME.latinIMELegacy.pickSuggestionManually(word)
+                labelX = centerX;
+                paint.setTextAlign(Align.CENTER);
             }
-        }
-
-        override fun requestForgetWord(word: SuggestedWordInfo?) {
-            latinIME.latinIMELegacy.requestForgetWord(word)
-        }
-
-        override fun onCodeInput(
-            primaryCode: Int,
-            x: Int,
-            y: Int,
-            isKeyRepeat: Boolean
-        ) {
-            latinIME.latinIMELegacy.onCodeInput(primaryCode, x, y, isKeyRepeat)
-        }
-
-    }
-
-    private val shouldShowSuggestionStrip = mutableStateOf(true)
-    private val suggestedWords: MutableState<SuggestedWords?> = mutableStateOf(null)
-
-    private var flickTypingObserverStarted = false
-
-fun startFlickTypingSettingsObserver() {
-    if (flickTypingObserverStarted) return
-
-    flickTypingObserverStarted = true
-
-    latinIME.lifecycleScope.launch {
-        latinIME.getSettingFlow(FlickTypingEnabled).collect { enabled ->
-            val predictions = if (enabled) {
-                buildFlickSuggestionMap(suggestedWords.value)
-            } else {
-                emptyMap()
-            }
-
-            latinIME.latinIMELegacy.setFlickSuggestions(predictions)
-        }
-    }
-}
-
-    private val expandableSuggestionCfg: MutableState<ExpandableSuggestionBarConfiguration> = mutableStateOf(
-        NonExpandableSuggestionBar
-    )
-
-    var currWindowAction: MutableState<Action?> = mutableStateOf(null)
-    private var persistentStates: HashMap<Action, PersistentActionState?> = hashMapOf()
-
-    private var inlineSuggestions: MutableState<List<MutableState<View?>>> = mutableStateOf(emptyList())
-    private val keyboardManagerForAction = UixActionKeyboardManager(this, latinIME)
-
-    private var mainKeyboardHidden = mutableStateOf(false)
-
-    fun getCurrentLayoutName(): String =
-        getPrimaryLayoutOverride(latinIME.currentInputEditorInfo)
-            ?: latinIME.latinIMELegacy.mKeyboardSwitcher.keyboard?.mId?.mKeyboardLayoutSetName
-            ?: "qwerty"
-
-    private var numSuggestionsSinceNotice = 0
-    private var currentNotice: MutableState<ImportantNotice?> = mutableStateOf(null)
-
-    private var inlineStuffHiddenByTyping = mutableStateOf(false)
-
-    private var isActionsExpanded = mutableStateOf(false)
-    private fun toggleActionsExpanded() {
-        isActionsExpanded.value = !isActionsExpanded.value
-        latinIME.deferSetSetting(latinIME, ActionBarExpanded, isActionsExpanded.value)
-
-        // invalidation strangeness (needs fixing)
-        if(ATLCompat.IsATL) latinIME.invalidateKeyboard(true)
-    }
-
-
-    val actionsExpanded: Boolean
-        get() = isActionsExpanded.value
-
-    internal val resizers = KeyboardResizers(latinIME)
-
-    private var isShowingActionEditor = mutableStateOf(false)
-    fun showActionEditor() {
-        isShowingActionEditor.value = true
-    }
-
-    val foldingOptions = mutableStateOf(FoldingOptions(null))
-    val floatingPreedit = mutableStateOf<FloatingPreEdit?>(null)
-    val floatingPreeditPosition = mutableStateOf<LayoutCoordinates?>(null)
-    val floatingPreeditHeight = mutableStateOf<Int>(0)
-    val floatingPreeditEditing = mutableStateOf(false)
-    val floatingPreeditText = mutableStateOf("")
-
-    var isInputOverridden = mutableStateOf(false)
-
-    var currWindowActionWindow: MutableState<ActionWindow?> = mutableStateOf(null)
-
-    private var measuredTouchableHeight = 0
-    val touchableHeight: Int
-        get() = measuredTouchableHeight
-
-    val isMainKeyboardHidden get() = mainKeyboardHidden.value
-
-    private fun onActionActivatedInternal(rawAction: Action, skipOverride: Boolean = false) {
-        resizers.hideResizer()
-
-        val action = if(skipOverride)
-            rawAction
-        else
-            ActionRegistry.getActionOverride(latinIME, rawAction)
-
-        if (action.windowImpl != null) {
-            enterActionWindowView(action)
-        } else if (action.simplePressImpl != null) {
-            action.simplePressImpl.invoke(keyboardManagerForAction, persistentStates[action])
-        } else {
-            throw IllegalStateException("An action must have either a window implementation or a simple press implementation")
-        }
-    }
-
-    /// public function to skip action override for voice input
-    fun activateInternalVoiceIME() {
-        onActionActivatedInternal(org.futo.inputmethod.latin.uix.actions.VoiceInputAction, skipOverride = true)
-    }
-
-    private fun onActionAltActivatedInternal(rawAction: Action) {
-        val action = ActionRegistry.getActionOverride(latinIME, rawAction)
-        action.altPressImpl?.invoke(keyboardManagerForAction, persistentStates[action])
-    }
-
-    fun onActionActivated(rawAction: Action) {
-        val event = Event.createSoftwareKeypressEvent(Constants.NOT_A_CODE, rawAction.keyCode, 0, 0, false)
-        latinIME.imeManager.getActiveIME(
-            Settings.getInstance().current
-        ).onEvent(event)
-    }
-
-    fun onActionAltActivated(rawAction: Action) {
-        val event = Event.createSoftwareKeypressEvent(Constants.NOT_A_CODE, rawAction.keyCodeAlt, 0, 0, false)
-        latinIME.imeManager.getActiveIME(
-            Settings.getInstance().current
-        ).onEvent(event)
-    }
-
-    @Composable
-    private fun MainKeyboardViewWithActionBar(
-        needToUseExpandableSuggestionUi: Boolean
-    ) {
-        val view = LocalView.current
-
-        val actionBarShown = useDataStore(ActionBarDisplayedSetting)
-
-        Column {
-            // Don't show suggested words when it's not meant to be shown
-            val suggestedWordsOrNull = if(shouldShowSuggestionStrip.value) {
-                suggestedWords.value
-            } else {
-                null
-            }
-
-            val inlineSuggestions = run {
-                if(!inlineStuffHiddenByTyping.value) inlineSuggestions.value else emptyList()
-            }
-
-            if(actionBarShown.value || inlineSuggestions.isNotEmpty()) {
-                ActionBar(
-                    suggestedWordsOrNull,
-                    suggestionStripListener,
-                    inlineSuggestions = inlineSuggestions,
-                    onActionActivated = {
-                        keyboardManagerForAction.performHapticAndAudioFeedback(
-                            Constants.CODE_TAB,
-                            view
-                        )
-                        onActionActivated(it)
-                    },
-                    onActionAltActivated = {
-                        if (it.altPressImpl != null) {
-                            keyboardManagerForAction.performHapticAndAudioFeedback(
-                                Constants.CODE_TAB,
-                                view
-                            )
-                        }
-                        onActionAltActivated(it)
-                    },
-                    importantNotice = currentNotice.value,
-                    keyboardManagerForAction = keyboardManagerForAction,
-                    isActionsExpanded = isActionsExpanded.value,
-                    toggleActionsExpanded = { toggleActionsExpanded() },
-                    quickClipState = run {
-                        if(!inlineStuffHiddenByTyping.value) quickClipState.value.filterIfDismissed()
-                            else null
-                    },
-                    onQuickClipDismiss = { quickClipState.value = null },
-                    needToUseExpandableSuggestionUi = needToUseExpandableSuggestionUi,
-                    loading = latinIME.imeManager.isImeLoading()
-                )
-            }
-        }
-    }
-
-    private fun enterActionWindowView(action: Action) {
-        assert(action.windowImpl != null)
-
-        currWindowAction.value = action
-
-        if (persistentStates[action] == null) {
-            persistentStates[action] = action.persistentState?.let { it(keyboardManagerForAction) }
-        }
-
-        currWindowActionWindow.value = (action.windowImpl!!)(keyboardManagerForAction, persistentStates[action])
-
-        mainKeyboardHidden.value = currWindowActionWindow.value?.onlyShowAboveKeyboard == false
-
-        if(action.keepScreenAwake) {
-            latinIME.window.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-
-        keyboardManagerForAction.announce(
-            latinIME.getString(
-                R.string.action_menu_opened,
-                latinIME.resources.getString(action.name)
-            ))
-    }
-
-    private fun returnBackToMainKeyboardViewFromAction(allowSkipClosing: Boolean): Boolean {
-        if(currWindowActionWindow.value == null) return true
-
-        val name = latinIME.resources.getString(currWindowAction.value!!.name)
-
-        if(currWindowActionWindow.value!!.close() == CloseResult.PreventClosing
-            && allowSkipClosing
-        ) {
-            return false
-        }
-
-        currWindowAction.value = null
-        currWindowActionWindow.value = null
-
-        mainKeyboardHidden.value = false
-
-        latinIME.onKeyboardShown()
-
-        latinIME.window.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        keyboardManagerForAction.announce(latinIME.getString(R.string.action_menu_closed, name))
-        return true
-    }
-
-    fun toggleExpandAction(to: Boolean? = null) {
-        mainKeyboardHidden.value = !(to ?: mainKeyboardHidden.value)
-        if(!mainKeyboardHidden.value) {
-            latinIME.onKeyboardShown()
-        }
-    }
-
-    @Composable
-    private fun ActionViewWithHeader(windowImpl: ActionWindow,
-                                     needToUseExpandableSuggestionUi: Boolean) {
-        val heightDiv = if(mainKeyboardHidden.value) {
-            1
-        } else {
-            1.5
-        }
-
-        val showingAboveKeyboard = !mainKeyboardHidden.value
-        Column {
-            Column(
-                Modifier.background(
-                    if (showingAboveKeyboard) {
-                        LocalKeyboardScheme.current.keyboardSurfaceDim
-                    } else {
-                        Color.Transparent
-                    }
-                )
-            ) {
-                if (mainKeyboardHidden.value || isInputOverridden.value) {
-                    ActionWindowBar(
-                        onBack = { closeActionWindow(true) },
-                        canExpand = currWindowAction.value!!.canShowKeyboard,
-                        onExpand = { toggleExpandAction() },
-                        windowTitleBar = { windowImpl.WindowTitleBar(this) }
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(with(LocalDensity.current) {
-                            currWindowActionWindow.value?.fixedWindowHeight ?: ((latinIME
-                                .getInputViewHeight()
-                                .toFloat() / heightDiv.toFloat()).toDp() +
-                                    if (actionsExpanded) ActionBarHeight else 0.dp)
-                        })
-                        .safeKeyboardPadding()
-                ) {
-                    windowImpl.WindowContents(keyboardShown = !mainKeyboardHidden.value)
-                }
-            }
-
-            if((!mainKeyboardHidden.value && !latinIME.isInputConnectionOverridden)
-                || (latinIME.inputConnectionOverridenWithSuggestions)) {
-                val suggestedWordsOrNull = if (shouldShowSuggestionStrip.value) {
-                    suggestedWords.value
+            if (key.getNeedsAutoXScale()) {
+                final float ratio = Math.min(1.0f, (keyWidth * MAX_LABEL_RATIO) /
+                        TypefaceUtils.getStringWidth(label, paint));
+                if (key.getNeedsAutoScale()) {
+                    final float autoSize = paint.getTextSize() * ratio;
+                    paint.setTextSize(autoSize);
                 } else {
-                    null
-                }
-
-                if(!needToUseExpandableSuggestionUi) {
-                    CollapsibleSuggestionsBar(
-                        onCollapse = { toggleExpandAction() },
-                        onClose = { closeActionWindow() },
-                        words = suggestedWordsOrNull,
-                        showClose = currWindowActionWindow.value?.showCloseButton == true,
-                        showCollapse = currWindowActionWindow.value?.positionIsUserManagable == true,
-                        suggestionStripListener = suggestionStripListener
-                    )
-                }
-            } else if(showingAboveKeyboard && !needToUseExpandableSuggestionUi) {
-                ActionSep()
-                Spacer(Modifier.height(1.dp))
-            }
-        }
-    }
-
-    val activeDialogRequest: MutableState<ActiveDialogRequest?> = mutableStateOf(null)
-    val activeDialogRequestDismissed: MutableState<Boolean> = mutableStateOf(true)
-
-    @Composable
-    fun BoxScope.ForgetWordDialog() {
-        AnimatedVisibility(
-            visible = !activeDialogRequestDismissed.value,
-            modifier = Modifier.matchParentSize(),
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            if (activeDialogRequest.value != null) {
-                Box(modifier = Modifier.matchParentSize()) {
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.66f),
-                        modifier = Modifier
-                            .matchParentSize()
-                            .pointerInput(Unit) {
-                                this.detectTapGestures(onPress = {
-                                    activeDialogRequestDismissed.value = true
-                                    activeDialogRequest.value?.onCancel?.invoke()
-                                })
-                            }
-                    ) { }
-
-                    Box(modifier = Modifier
-                        .matchParentSize()
-                        .padding(8.dp)) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.align(Alignment.Center)
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    activeDialogRequest.value?.text ?: "",
-                                    style = Typography.Body.Medium
-                                )
-
-                                Row {
-                                    activeDialogRequest.value?.options?.forEach {
-                                        TextButton(
-                                            onClick = {
-                                                it.onClick()
-                                                activeDialogRequestDismissed.value = true
-                                            }
-                                        ) {
-                                            Text(it.option)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    paint.setTextScaleX(ratio);
                 }
             }
-        }
-    }
 
-    private var languageSwitcherDialog: DialogComposeView? = null
-    fun showLanguageSwitcher() {
-        // Dismiss old dialog
-        languageSwitcherDialog?.dismiss()
+            if (key.isEnabled()) {
+                if(outline != null) {
+                    paint.setStrokeWidth(outline.getWidthPx());
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeMiter(3.0f);
+                    paint.setColor(outline.getColor());
+                    canvas.drawText(label, 0, label.length(), labelX, labelBaseline, paint);
 
-        // Create new dialog
-        languageSwitcherDialog = createDialogComposeView(latinIME) { dialog ->
-            DataStoreCacheProvider {
-                UixThemeAuto {
-                    LanguageSwitcherDialog(
-                        onDismiss = { dialog.dismiss() },
-                        switchToIme = {
-                            latinIME.lifecycleScope.launch(Dispatchers.Main) {
-                                latinIME.switchInputMethod(it.id)
-                                dialog.dismiss()
-                            }
-                        }
-                    )
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setStrokeWidth(0);
                 }
-            }
-        }
 
-        languageSwitcherDialog?.show()
-    }
-
-    @Composable
-    fun ActionEditorHost() {
-        Box(modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = navBarHeight()), contentAlignment = Alignment.BottomCenter) {
-            AnimatedVisibility(
-                visible = isShowingActionEditor.value,
-                enter = slideInVertically { it },
-                exit = slideOutVertically { it },
-                content = {
-                    ActionEditor()
-                },
-            )
-        }
-    }
-
-    @Composable
-    fun InputDarkener(darken: Boolean, onClose: () -> Unit) {
-        val color by animateColorAsState(
-            if (darken) Color.Black.copy(alpha = 0.25f) else Color.Transparent
-        )
-
-        LaunchedEffect(darken) {
-            latinIME.setInputModal(darken)
-        }
-
-        Box(Modifier
-            .background(color)
-            .fillMaxWidth()
-            .fillMaxHeight()
-            .then(
-                if (darken) {
-                    Modifier.pointerInput(Unit) {
-                        detectTapGestures {
-                            onClose()
-                        }
-                    }
+                paint.setColor(kdc.getTextColor());
+                // Set a drop shadow for the text if the shadow radius is positive value.
+                if (mKeyTextShadowRadius > 0.0f) {
+                    paint.setShadowLayer(mKeyTextShadowRadius, 0.0f, 0.0f, params.mTextShadowColor);
                 } else {
-                    Modifier
-                })
-        )
-    }
-
-    @Composable
-    private fun OffsetPositioner(offset: Offset, content: @Composable () -> Unit) {
-        Column(modifier = Modifier
-            .fillMaxHeight()
-            .absoluteOffset { IntOffset(offset.x.toInt(), 0) }) {
-            Spacer(Modifier.weight(1.0f))
-            content()
-            Spacer(Modifier.height(with(LocalDensity.current) { offset.y.toDp() }))
-        }
-    }
-
-    @Composable
-    private fun KeyboardSurface(
-        requiredWidthPx: Int,
-        backgroundColor: Color,
-        modifier: Modifier = Modifier,
-        shape: Shape = RectangleShape,
-        padding: Rect = Rect(),
-        content: @Composable BoxScope.() -> Unit
-    ) = with(LocalDensity.current) {
-
-        Box(modifier
-            .onSizeChanged { measuredTouchableHeight = it.height }
-            .requiredWidth(requiredWidthPx.toDp())
-            .absolutePadding(
-                //top = padding.top.toDp().coerceAtLeast(0.dp),
-                //bottom = padding.bottom.toDp().coerceAtLeast(0.dp),
-            )
-            .clip(shape)
-            .clipToBounds()
-            // Blocks any input to inputDarkener within the keyboard
-            .pointerInput(Unit) {}
-        ) {
-            KeyboardBackground(LocalKeyboardScheme.current, latinIME.size.value)
-
-            CompositionLocalProvider(LocalKeyboardPadding provides KeyboardPadding(
-                    left = padding.left.toDp().coerceAtLeast(0.dp),
-                    right = padding.right.toDp().coerceAtLeast(0.dp),
-                )
-            ) {
-                CompositionLocalProvider(LocalContentColor provides LocalKeyboardScheme.current.onBackground) {
-                    content()
+                    paint.clearShadowLayer();
                 }
-            }
-        }
-    }
-
-    @Composable
-    private fun FloatingKeyboardContents(
-        pointerInputKey: Any?,
-        onDragged: (Offset) -> Unit,
-        onDragEnd: () -> Unit,
-        content: @Composable BoxScope.(actionBarGap: Dp) -> Unit
-    ) {
-        // Content
-        Box(Modifier.fillMaxWidth()) {
-            content(4.dp)
-        }
-
-        // Bottom drag bar
-        Box(modifier = Modifier
-            .fillMaxWidth()
-            .height(32.dp)
-            .pointerInput(pointerInputKey) {
-                detectDragGestures(
-                    onDrag = { _, dragAmount -> onDragged(dragAmount) },
-                    onDragEnd = { onDragEnd() })
-            }
-        ) {
-            IconButton(onClick = {
-                onActionActivated(KeyboardModeAction)
-            }, Modifier.align(Alignment.CenterEnd)) {
-                Icon(
-                    painterResource(R.drawable.keyboard_gear),
-                    contentDescription = stringResource(R.string.action_keyboard_modes_title),
-                    tint = LocalKeyboardScheme.current.onSurfaceVariant
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(4.dp)
-                    .align(Alignment.Center)
-                    .background(
-                        LocalKeyboardScheme.current.onSurfaceVariant,
-                        RoundedCornerShape(100)
-                    )
-            )
-        }
-    }
-
-    var floatingPosition = Offset.Zero
-
-    @Composable
-    private fun FloatingKeyboardWindow(
-        size: FloatingKeyboardSize,
-        content: @Composable BoxScope.(actionBarGap: Dp) -> Unit
-    ) = with(LocalDensity.current) {
-        val offset = remember(size) { mutableStateOf(Offset(size.bottomOrigin.first.toFloat(), size.bottomOrigin.second.toFloat())) }
-        val shape = RoundedCornerShape(16.dp)
-
-        OffsetPositioner(offset.value + Offset(0.0f, navBarHeight().toPx())) {
-            KeyboardSurface(
-                requiredWidthPx = size.width,
-                backgroundColor = latinIME.keyboardColor,
-                shape = shape,
-                padding = size.padding,
-                modifier = Modifier.onGloballyPositioned {
-                    floatingPosition = it.positionInWindow()
-                }
-            ) {
-                Column {
-                    FloatingKeyboardContents(
-                        pointerInputKey = size,
-                        onDragged = { dragAmount ->
-                            var newOffset = offset.value.copy(
-                                x = offset.value.x + dragAmount.x,
-                                y = offset.value.y - dragAmount.y
-                            )
-
-                            // Ensure we are not out of bounds
-                            newOffset = newOffset.copy(
-                                newOffset.x.coerceAtLeast(0.0f),
-                                newOffset.y.coerceAtLeast(0.0f)
-                            )
-                            newOffset = newOffset.copy(
-                                newOffset.x.coerceAtMost(
-                                    latinIME.getViewWidth().toFloat() - size.width
-                                ),
-                                newOffset.y.coerceAtMost(
-                                    latinIME.getViewHeight().toFloat() - measuredTouchableHeight
-                                )
-                            )
-
-                            offset.value = newOffset
-                        },
-                        onDragEnd = {
-                            latinIME.sizingCalculator.editSavedSettings { settings ->
-                                settings.copy(
-                                    floatingBottomOriginDp = Pair(
-                                        offset.value.x.toDp().value,
-                                        offset.value.y.toDp().value
-                                    )
-                                )
-                            }
-                        },
-                        content = content
-                    )
-                }
-
-                resizers.Resizer(this, size, shape)
-            }
-        }
-    }
-
-    @Composable
-    private fun BoxScope.OneHandedOptions(size: OneHandedKeyboardSize) = with(LocalDensity.current) {
-        Box(Modifier.matchParentSize()) {
-            Column(modifier = Modifier
-                .matchParentSize()
-                .absolutePadding(
-                    top = if (isActionsExpanded.value) ActionBarHeight else 0.dp
-                ), horizontalAlignment = when(size.direction) {
-                // Aligned opposite of the keyboard
-                OneHandedDirection.Left -> Alignment.End
-                OneHandedDirection.Right -> Alignment.Start
-            }) {
-                IconButton(onClick = {
-                    latinIME.sizingCalculator.editSavedSettings {
-                        it.copy(oneHandedDirection = it.oneHandedDirection.opposite)
-                    }
-                }) {
-                    Icon(painterResource(when(size.direction) {
-                        // Show opposite icon
-                        OneHandedDirection.Left -> R.drawable.chevron_right
-                        OneHandedDirection.Right -> R.drawable.chevron_left
-                    }), contentDescription = stringResource(R.string.one_handed_mode_switch_hand)
-                    )
-                }
-
-                Spacer(Modifier.weight(1.0f))
-
-                IconButton(onClick = {
-                    latinIME.sizingCalculator.exitOneHandedMode()
-                }) {
-                    Icon(painterResource(R.drawable.maximize), contentDescription = stringResource(R.string.one_handed_mode_exit))
-                }
-
-                Spacer(Modifier.height(navBarHeight()))
-            }
-        }
-    }
-
-    @Composable
-    private fun NonFloatingKeyboardWindow(
-        size: ComputedKeyboardSize,
-        content: @Composable BoxScope.(actionBarGap: Dp) -> Unit
-    ) = with(LocalDensity.current) {
-        OffsetPositioner(Offset.Zero) {
-            KeyboardSurface(
-                requiredWidthPx = size.width,
-                backgroundColor = latinIME.keyboardColor,
-                padding = size.padding
-            ) {
-                val paddingOverride = when(size) {
-                    is OneHandedKeyboardSize -> {
-                        val pad = LocalKeyboardPadding.current
-                        val sidePad = (size.width - size.layoutWidth).toDp()
-                        when(size.direction) {
-                            OneHandedDirection.Left -> pad.copy(right = sidePad - pad.left)
-                            OneHandedDirection.Right -> pad.copy(left = sidePad - pad.right)
-                        }
-                    }
-                    else -> LocalKeyboardPadding.current
-                }
-
-                CompositionLocalProvider(LocalKeyboardPadding provides paddingOverride) {
-                    content(size.padding.top.toDp().coerceAtLeast(4.dp))
-                    resizers.Resizer(this, size)
-                }
-
-                if(size is OneHandedKeyboardSize) {
-                    OneHandedOptions(size)
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun KeyboardWindowSelector(content: @Composable BoxScope.(actionBarGap: Dp) -> Unit) {
-        val size = latinIME.size.value
-        when(size) {
-            is FloatingKeyboardSize -> FloatingKeyboardWindow(size, content)
-
-            is OneHandedKeyboardSize,
-            is RegularKeyboardSize,
-            is SplitKeyboardSize -> NonFloatingKeyboardWindow(size, content)
-
-            null -> return
-        }
-    }
-
-    var prevSize: IntSize = IntSize.Zero
-    @Composable
-    private fun ProvidersAndWrapper(content: @Composable () -> Unit) {
-        UixThemeWrapper(latinIME.colorScheme) {
-            DataStoreCacheProvider {
-                CompositionLocalProvider(
-                    LocalManager provides keyboardManagerForAction,
-                    LocalThemeProvider provides latinIME.getDrawableProvider(),
-                    LocalLayoutDirection provides LayoutDirection.Ltr,
-                    LocalFoldingState provides foldingOptions.value
-                ) {
-                    Box(Modifier
-                        .fillMaxSize()
-                        .onSizeChanged {
-                            // If the size changes, call the service to check if the size needs
-                            // to be recalculated and keyboard recreated
-                            if (it != prevSize) {
-                                prevSize = it
-                                latinIME.onSizeUpdated()
-                            }
-                        }) {
-                        content()
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun Content() {
-        ProvidersAndWrapper {
-            InputDarkener(isInputOverridden.value || isShowingActionEditor.value) {
-                closeActionWindow()
-                isShowingActionEditor.value = false
-            }
-
-            TutorialArrow()
-
-            KeyboardWindowSelector { gap ->
-                Column {
-                    Box(Modifier.onGloballyPositioned { floatingPreeditPosition.value = it })
-                    // TODO: Refactor how we handle expandable suggestions here to not be a mess
-                    val needToUseExpandableSuggestionUi =
-                        expandableSuggestionCfg.value.useExpandableUi && suggestedWords.value?.size()?.equals(0) != true
-                                && mainKeyboardHidden.value == false
-                                && (quickClipState.value == null || inlineStuffHiddenByTyping.value)
-                                && currentNotice.value == null
-                                && (inlineSuggestions.value.isEmpty() || inlineStuffHiddenByTyping.value)
-                    when {
-                        currWindowActionWindow.value != null -> ActionViewWithHeader(
-                            currWindowActionWindow.value!!,
-                            needToUseExpandableSuggestionUi
-                        )
-
-                        else -> MainKeyboardViewWithActionBar(
-                            needToUseExpandableSuggestionUi
-                        )
-                    }
-
-                    if(!needToUseExpandableSuggestionUi) {
-                        Spacer(modifier = Modifier.height(gap))
-                    }
-
-                    val kbHeight = remember { mutableIntStateOf(latinIME.size.value!!.height) }
-                    val keyboardViewOffset = remember(needToUseExpandableSuggestionUi) { mutableIntStateOf(0) }
-                    Box(Modifier.let {
-                        if(needToUseExpandableSuggestionUi) {
-                            it.height(
-                                with(LocalDensity.current) { kbHeight.intValue.toDp() }
-                                        + latinIME.sizingCalculator.calculateSuggestionBarHeightDp().dp
-                                        + gap
-                            )
-                        } else {
-                            it
-                        }
-                    }) {
-                        if(needToUseExpandableSuggestionUi) {
-                            ActionBarWithExpandableCandidates(
-                                suggestedWords.value,
-                                suggestionStripListener,
-                                isActionsExpanded = isActionsExpanded.value,
-                                toggleActionsExpanded = { toggleActionsExpanded() },
-                                closeActionWindow = currWindowActionWindow.value?.let {{ closeActionWindow() }},
-                                keyboardOffset = keyboardViewOffset,
-                                keyboardHeight = (latinIME.size.value?.height ?: kbHeight.intValue) + with(LocalDensity.current) { navBarHeight().toPx().toInt() },
-                                expandableSuggestionCfg = expandableSuggestionCfg.value
-                            )
-                        }
-                        latinIME.LegacyKeyboardView(modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .onSizeChanged {
-                                // TODO: Is there a better way?
-                                kbHeight.intValue = it.height.let {
-                                    if (it > 0) {
-                                        it
-                                    } else {
-                                        latinIME.size.value!!.height
-                                    }
-                                }
-                            }
-                            .absoluteOffset { IntOffset(0, keyboardViewOffset.intValue) },
-                            hidden = mainKeyboardHidden.value)
-                    }
-
-                    if(latinIME.size.value !is FloatingKeyboardSize) {
-                        Spacer(Modifier.height(navBarHeight()))
-                    }
-                }
-
-                ForgetWordDialog()
-            }
-
-            ActionEditorHost()
-
-            val preedit = floatingPreedit.value
-            if(preedit != null && floatingPreeditShown) {
-                FloatingPreEditView(preedit, floatingPreeditPosition.value,
-                    { floatingPreeditHeight.value = it },
-                    floatingPreeditText, floatingPreeditEditing)
-            }
-        }
-    }
-
-    private val floatingPreeditShown: Boolean get() = run {
-        val preedit = floatingPreedit.value
-        return preedit != null && (preedit.entries.isNotEmpty() || floatingPreeditEditing.value)
-    }
-
-    fun setContent() {
-        composeView?.setContent {
-            Content()
-        }
-    }
-
-    suspend fun showUpdateNoticeIfNeeded() {
-        if(!BuildConfig.UPDATE_CHECKING) return
-
-        autoDeferManualUpdateIfNeeded(latinIME)
-
-        val updateInfo = retrieveSavedLastUpdateCheckResult(latinIME)
-        if(updateInfo != null && updateInfo.isNewer()) {
-            /*if(!latinIME.getSetting(DISABLE_UPDATE_REMINDER)) {
-                numSuggestionsSinceNotice = 0
-                currentNotice.value = object : ImportantNotice {
-                    @Composable
-                    override fun getText(): String {
-                        return "Update available: ${updateInfo.nextVersionString}"
-                    }
-
-                    override fun onDismiss(context: Context) {
-                        currentNotice.value = null
-                    }
-
-                    override fun onOpen(context: Context) {
-                        currentNotice.value = null
-
-                        val intent = Intent(context, SettingsActivity::class.java)
-                        intent.putExtra("navDest", "update")
-
-                        if (context !is Activity) {
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-
-                        context.startActivity(intent)
-                    }
-                }
-            }*/
-        } else {
-            if(isManualUpdateTimeExpired(latinIME)) {
-                numSuggestionsSinceNotice = 0
-                currentNotice.value = object : ImportantNotice {
-                    @Composable
-                    override fun getText(): String {
-                        return stringResource(R.string.keyboard_actionbar_manual_update_check_notice)
-                    }
-
-                    override fun onDismiss(context: Context, auto: Boolean) {
-                        currentNotice.value = null
-
-                        runBlocking {
-                            deferManualUpdate(latinIME)
-                        }
-                    }
-
-                    override fun onOpen(context: Context) {
-                        currentNotice.value = null
-                        context.openManualUpdateCheck()
-
-                        runBlocking {
-                            deferManualUpdate(latinIME)
-                        }
-                    }
-                }
-
-            }
-        }
-    }
-
-    fun onColorSchemeChanged() {
-        setContent()
-    }
-
-    fun cleanUpPersistentStates() {
-        for((key, value) in persistentStates.entries) {
-            if(currWindowAction != key) {
-                latinIME.lifecycleScope.launch { value?.cleanUp() }
-            }
-        }
-    }
-
-    fun closeActionWindow(allowSkipClosing: Boolean = false) {
-        if(returnBackToMainKeyboardViewFromAction(allowSkipClosing) == false) return
-
-        // Reset any typeface override as they're not supposed to persist outside of an active
-        // action window
-        keyboardManagerForAction.overrideKeyboardTypeface(null)
-    }
-
-
-    fun updateVisibility(shouldShowSuggestionsStrip: Boolean, fullscreenMode: Boolean) {
-        this.shouldShowSuggestionStrip.value = shouldShowSuggestionsStrip
-    }
-
-    private fun buildFlickSuggestionMap(suggestedWords: SuggestedWords?): Map<Int, String> {
-        if (suggestedWords == null || suggestedWords.mIsObsoleteSuggestions) return emptyMap()
-
-        val typedWord = suggestedWords.mTypedWordInfo?.mWord
-        if (typedWord.isNullOrBlank()) return emptyMap()
-
-        val predictions = LinkedHashMap<Int, String>()
-        for (index in 0 until suggestedWords.size()) {
-            val candidate = suggestedWords.getWord(index)
-            if (candidate.length <= typedWord.length ||
-                !candidate.regionMatches(0, typedWord, 0, typedWord.length, ignoreCase = true)
-            ) {
-                continue
-            }
-
-            val nextCodePoint = candidate.codePointAt(typedWord.length)
-            if (!Character.isLetter(nextCodePoint)) continue
-
-            val keyCode = Character.toLowerCase(nextCodePoint)
-            if (!predictions.containsKey(keyCode)) {
-                // SuggestedWords is already ranked, so the first word for each next letter is
-                // the best-ranked candidate for that key.
-                predictions[keyCode] = candidate
-            }
-        }
-        return predictions
-    }
-
-    fun setSuggestions(suggestedWords: SuggestedWords?, rtlSubtype: Boolean, cfg: ExpandableSuggestionBarConfiguration) {
-        this.suggestedWords.value = suggestedWords
-        this.expandableSuggestionCfg.value = cfg
-
-        val flickSuggestions = if (latinIME.getSetting(FlickTypingEnabled)) {
-            buildFlickSuggestionMap(suggestedWords)
-        } else {
-            emptyMap()
-        }
-        latinIME.latinIMELegacy.setFlickSuggestions(flickSuggestions)
-
-        if(currentNotice.value != null && suggestedWords?.isEmpty != true) {
-            if(numSuggestionsSinceNotice > 0) {
-                currentNotice.value?.onDismiss(latinIME, true)
-            }
-            numSuggestionsSinceNotice += 1
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.R)
-    fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
-        if(latinIME.getSetting(ActionBarDisplayedSetting) == false) return false
-        if(latinIME.getSetting(InlineAutofillSetting) == false) return false
-
-        if(response.inlineSuggestions.isNotEmpty() == true){
-            currentNotice.value?.onDismiss(latinIME, true)
-        }
-
-        inlineSuggestions.value = response.inlineSuggestions.map {
-            latinIME.inflateInlineSuggestion(it)
-        }
-
-        return true
-    }
-
-    fun triggerActionInternalFromIme(id: Int, alt: Boolean) {
-        val action = AllActions.getOrNull(id) ?: throw IllegalArgumentException("No such action with ID $id")
-
-        if(alt) {
-            onActionAltActivatedInternal(action)
-        } else {
-            if (currWindowAction.value != null && action.windowImpl != null) {
-                closeActionWindow()
-            }
-
-            onActionActivatedInternal(action)
-        }
-    }
-
-    fun requestForgetWord(suggestedWordInfo: SuggestedWords.SuggestedWordInfo) {
-        keyboardManagerForAction.requestDialog(
-            latinIME.getString(R.string.keyboard_suggest_blacklist_body, suggestedWordInfo.mWord),
-            listOf(
-                DialogRequestItem(latinIME.getString(R.string.cancel)) { },
-                DialogRequestItem(latinIME.getString(R.string.keyboard_suggest_add_word_to_blacklist)) {
-                    latinIME.blacklistWord(suggestedWordInfo)
-                },
-            ) + if(suggestedWordInfo.mKindAndFlags == SuggestedWordInfo.KIND_EMOJI_SUGGESTION) {
-                listOf(
-                    DialogRequestItem(latinIME.getString(R.string.keyboard_suggest_disable_emojis)) {
-                        runBlocking { latinIME.setSetting(SHOW_EMOJI_SUGGESTIONS, false) }
-                        latinIME.blacklistWord(null)
-                    }
-                )
             } else {
-                listOf()
+                // Make label invisible
+                paint.setColor(Color.TRANSPARENT);
+                paint.clearShadowLayer();
             }
-        ) { }
 
-        val v = latinIME.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator?
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            v!!.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            v!!.vibrate(50)
-        }
-    }
+            if(outline == null) blendAlpha(paint, params.mAnimAlpha);
 
-    private fun initKeyboardLoadActions() {
-        if(!latinIME.isDirectBootUnlocked) return
-        AllActions.forEach { action ->
-            if (action.persistentStateInitialization == PersistentStateInitialization.OnKeyboardLoad) {
-                persistentStates[action] = persistentStates[action] ?:
-                    action.persistentState?.let { it(keyboardManagerForAction) }
-            }
-        }
-    }
+            canvas.drawText(label, 0, label.length(), labelX, labelBaseline, paint);
 
-        fun onCreate() {
-        initKeyboardLoadActions()
-
-        // Start observing Flick Typing settings
-        startFlickTypingSettingsObserver()
-
-        isActionsExpanded.value = latinIME.getSettingBlocking(ActionBarExpanded)
-
-        latinIME.lifecycleScope.launch(Dispatchers.Main) {
-            WindowInfoTracker.getOrCreate(latinIME).windowLayoutInfo(latinIME).collect {
-                foldingOptions.value = FoldingOptions(
-                    it.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
-                )
-                latinIME.invalidateKeyboard(true)
-            }
+            // Turn off drop shadow and reset x-scale.
+            paint.clearShadowLayer();
+            paint.setTextScaleX(1.0f);
         }
 
-        setContent()
-    }
-    fun onPersistentStatesUnlocked() {
-        initKeyboardLoadActions()
+        // Draw hint label.
+        final String hintLabel = kdc.getHintLabel();
+        if (hintLabel != null) {
+            paint.setTextSize(kdc.getHintSize());
+            paint.setColor(kdc.getHintColor());
 
-        persistentStates.forEach {
-            latinIME.lifecycleScope.launch {
-                it.value?.onDeviceUnlocked()
-            }
-        }
-    }
+            // Bold explicit hints
+            paint.setTypeface(kdc.getHintTypeface());
 
-    var editorInfo: EditorInfo? = null
-
-
-    // TODO: Move tutorial stuff to a separate class
-
-    val tutorialMode: TutorialMode
-        get() = when {
-            editorInfo?.privateImeOptions?.contains("org.futo.inputmethod.latin.ResizeMode=1") == true ->
-                TutorialMode.ResizerTutorial
-
-            else ->
-                TutorialMode.None
-        }
-
-    val currTutorialMode = mutableStateOf(TutorialMode.None)
-    val tutorialArrowPosition: MutableState<LayoutCoordinates?> = mutableStateOf(null)
-    val tutorialCompleted = mutableStateOf(false)
-
-    @Composable
-    private fun TutorialArrow() = with(LocalDensity.current) {
-        if(currTutorialMode.value == TutorialMode.ResizerTutorial && !tutorialCompleted.value) {
-            tutorialArrowPosition.value?.let { position ->
-                val pos = position.positionInWindow()
-                Icon(
-                    painterResource(R.drawable.pointy_arrow),
-                    contentDescription = null,
-                    tint = LocalKeyboardScheme.current.primary,
-                    modifier = Modifier
-                        .size(128.dp)
-                        .offset {
-                            IntOffset(
-                                pos.x.roundToInt(),
-                                (pos.y - 128.dp.toPx()).roundToInt()
-                            )
-                        }
-                )
-            }
-        }
-    }
-
-    private val quickClipState: MutableState<QuickClipState?> = mutableStateOf(null)
-    fun dismissQuickClips() { quickClipState.value = null }
-    fun inputStarted(editorInfo: EditorInfo?) {
-        try {
-            checkIfDictInstalled()
-        } catch(e: Exception) {
-            e.printStackTrace()
-        }
-        inlineStuffHiddenByTyping.value = false
-        this.editorInfo = editorInfo
-
-        currTutorialMode.value = tutorialMode
-        tutorialCompleted.value = false
-        tutorialArrowPosition.value = null
-
-        if(tutorialMode == TutorialMode.ResizerTutorial) {
-            onActionActivated(KeyboardModeAction)
-        }else if(BugViewerState.isBugViewerPendingOpen) {
-            BugViewerState.clearPendingOpen()
-            onActionActivated(BugViewerAction)
-        }
-
-        quickClipState.value = QuickClip.getCurrentState(latinIME)
-        floatingPreeditEditing.value = false
-    }
-
-    fun onInputFinishing() {
-        closeActionWindow()
-        languageSwitcherDialog?.dismiss()
-        isShowingActionEditor.value = false
-        resizers.hideResizer()
-        inlineSuggestions.value = emptyList()
-        floatingPreeditText.value = ""
-    }
-
-    // Called by InputLogic on any event
-    fun onInputEvent(textBlank: Boolean) {
-        inlineStuffHiddenByTyping.value = textBlank == false
-    }
-
-    fun updateEmojiTranslationsIfNeeded() {
-        if(latinIME.getSetting(SHOW_EMOJI_SUGGESTIONS)
-            && Settings.getInstance().current.needsToLookupSuggestions()
-        ) {
-            prevLocale?.let {
-                PersistentEmojiState.loadTranslationsForLanguage(latinIME, it)
-            }
-        }
-    }
-
-    private var prevLocale: Locale? = null
-    fun updateLocale(locale: Locale): Configuration? {
-        var result: Configuration? = null
-        prevLocale = locale
-        if(UixLocaleFollowsSubtypeLocale) {
-            latinIME.resources.apply {
-                val config = Configuration(configuration)
-                config.setLocale(locale)
-                result = config
-                updateConfiguration(config, displayMetrics)
-            }
-            setContent()
-        }
-
-        updateEmojiTranslationsIfNeeded()
-        checkIfDictInstalled()
-        return result
-    }
-
-    fun updateLocaleOnCfgChanged(): Configuration? {
-        return prevLocale?.let { updateLocale(it) }
-    }
-
-    fun onDestroy() {
-        closeActionWindow()
-        persistentStates.values.filterNotNull().forEach {
-            it.close()
-        }
-        persistentStates.clear()
-    }
-
-    private fun checkIfDictInstalled() {
-        val check = MissingDictionaryHelper.checkIfDictInstalled(latinIME)
-        when(check) {
-            MissingDictionaryHelper.DictCheckResult.CheckFailed -> { }
-            MissingDictionaryHelper.DictCheckResult.DontShowDictNotice -> {
-                // Hide any existing one, e.g. if user just installed a dict or switched to a language
-                // with a dict.
-                if(currentNotice.value is MissingDictionaryHelper.NoDictionaryNotice) {
-                    currentNotice.value = null
+            blendAlpha(paint, params.mAnimAlpha);
+            final float labelCharHeight = TypefaceUtils.getReferenceCharHeight(paint);
+            final float labelCharWidth = TypefaceUtils.getReferenceCharWidth(paint);
+            float hintX, hintBaseline;
+            if (key.getHasHintLabel()) {
+                // The hint label is placed just right of the key label. Used mainly on
+                // "phone number" layout.
+                hintX = labelX + params.mHintLabelOffCenterRatio * labelCharWidth;
+                if (key.isAlignHintLabelToBottom(mDefaultKeyLabelFlags)) {
+                    hintBaseline = labelBaseline;
+                } else {
+                    hintBaseline = centerY + labelCharHeight / 2.0f;
                 }
+                paint.setTextAlign(Align.CENTER);
+            } else if (key.getHasShiftedLetterHint()) {
+                // The hint label is placed at top-right corner of the key. Used mainly on tablet.
+                hintX = keyWidth - mKeyShiftedLetterHintPadding - labelCharWidth / 2.0f;
+                paint.getFontMetrics(mFontMetrics);
+                hintBaseline = -mFontMetrics.top;
+                paint.setTextAlign(Align.CENTER);
+            } else { // key.hasHintLetter()
+                // The hint letter is placed at top-right corner of the key. Used mainly on phone.
+                final float hintDigitWidth = TypefaceUtils.getReferenceDigitWidth(paint);
+                final float hintLabelWidth = TypefaceUtils.getStringWidth(hintLabel, paint);
+                hintX = keyWidth - keyHintPaddingX - Math.max(hintDigitWidth, hintLabelWidth) / 2.0f;
+                hintBaseline = -paint.ascent() + keyHintPaddingY;
+
+                if (kdc.getCenteredHint()) {
+                    hintX = centerX;
+                    hintBaseline += paint.ascent() / 3.0f;
+                }
+                paint.setTextAlign(Align.CENTER);
             }
-            is MissingDictionaryHelper.DictCheckResult.ShowDictNotice -> {
-                numSuggestionsSinceNotice = 0
-                currentNotice.value = MissingDictionaryHelper.NoDictionaryNotice(
-                    check.dismissalSetting,
-                    check.locale,
-                    latinIME.getString(R.string.keyboard_actionbar_no_dictionary_installed_notice)
-                ) { currentNotice.value = null }
+            final float adjustmentY = params.mHintLabelVerticalAdjustment * labelCharHeight;
+            canvas.drawText(
+                    hintLabel, 0, hintLabel.length(), hintX, hintBaseline + adjustmentY, paint);
+        } else if(hintIcon != null) {
+            final float size = kdc.getHintSize();
+
+            int iconWidth = (int)size;
+            int iconHeight = (int)size;
+
+            int hintX = keyWidth - iconWidth - (int)keyHintPaddingX;
+            int hintY = (int)keyHintPaddingY;
+
+
+            if(kdc.getCenteredHint()) {
+                hintX = (int)centerX - iconWidth / 2;
             }
+
+            hintIcon.setTint(kdc.getHintColor());
+            drawIcon(canvas, hintIcon, hintX, hintY, iconWidth, iconHeight);
+        }
+
+                // Draw key icon.
+        if (icon != null) {
+            final float size = kdc.getTextSize() * 1.75f;
+
+            int iconWidth;
+            if (key.getCode() == Constants.CODE_SPACE && icon instanceof NinePatchDrawable) {
+                iconWidth = (int)(keyWidth * mSpacebarIconWidthRatio);
+            } else {
+                iconWidth = Math.min(icon.getIntrinsicWidth(), keyWidth);
+            }
+            int iconHeight = icon.getIntrinsicHeight();
+
+            if(iconWidth > size) {
+                //iconHeight = (int)((float)iconHeight / (float)iconWidth * (float)size);
+                iconWidth = (int)size;
+            }
+
+            iconHeight = iconWidth;
+
+            final int iconY;
+            if (key.isAlignIconToBottom()) {
+                iconY = keyHeight - iconHeight;
+            } else {
+                iconY = (keyHeight - iconHeight) / 2; // Align vertically center.
+            }
+            final int iconX = (keyWidth - iconWidth) / 2; // Align horizontally center.
+
+            icon.setTint(kdc.getTextColor());
+            drawIcon(canvas, icon, iconX, iconY, iconWidth, iconHeight);
+        }
+
+        if (key.getHasPopupHint() && !key.getMoreKeys().isEmpty()) {
+            drawKeyPopupHint(key, canvas, paint, params);
         }
     }
 
-    fun setPreedit(preedit: FloatingPreEdit?) {
-        floatingPreedit.value = preedit
+    // Draw popup hint "..." at the bottom right corner of the key.
+    protected void drawKeyPopupHint(@Nonnull final Key key, @Nonnull final Canvas canvas,
+            @Nonnull final Paint paint, @Nonnull final KeyDrawParams params) {
+        if (TextUtils.isEmpty(mKeyPopupHintLetter)) {
+            return;
+        }
+        final int keyWidth = key.getDrawWidth();
+        final int keyHeight = key.getHeight();
+
+        paint.setTypeface(params.mTypeface);
+        paint.setTextSize(params.mHintLetterSize);
+        paint.setColor(params.mHintLabelColor);
+        paint.setTextAlign(Align.CENTER);
+        final float hintX = keyWidth - mKeyHintLetterPadding
+                - TypefaceUtils.getReferenceCharWidth(paint) / 2.0f;
+        final float hintY = keyHeight - mKeyPopupHintLetterPadding;
+        canvas.drawText(mKeyPopupHintLetter, hintX, hintY, paint);
     }
 
-    val extraTopTouchHeight: Int
-        get() = if(floatingPreeditShown) floatingPreeditHeight.value else 0
+    protected static void drawIcon(@Nonnull final Canvas canvas,@Nonnull final Drawable icon,
+            final int x, final int y, final int width, final int height) {
+        canvas.translate(x, y);
+        icon.setBounds(0, 0, width, height);
+        icon.draw(canvas);
+        canvas.translate(-x, -y);
+    }
+
+    public Paint newLabelPaint(@Nullable final Key key) {
+        final Paint paint = new Paint();
+        paint.setAntiAlias(true);
+        if (key == null) {
+            paint.setTypeface(mKeyDrawParams.mTypeface);
+            paint.setTextSize(mKeyDrawParams.mLabelSize);
+        } else {
+            paint.setColor(key.selectTextColor(mDrawableProvider, mKeyDrawParams));
+            paint.setTypeface(mDrawableProvider.selectKeyTypeface(key.selectTypeface(mKeyDrawParams)));
+            paint.setTextSize(key.selectTextSize(mKeyDrawParams));
+        }
+        return paint;
+    }
+
+    /**
+     * Requests a redraw of the entire keyboard. Calling {@link #invalidate} is not sufficient
+     * because the keyboard renders the keys to an off-screen buffer and an invalidate() only
+     * draws the cached buffer.
+     * @see #invalidateKey(Key)
+     */
+    public void invalidateAllKeys() {
+        mInvalidatedKeys.clear();
+        mInvalidateAllKeys = true;
+        invalidate();
+    }
+
+    /**
+     * Invalidates a key so that it will be redrawn on the next repaint. Use this method if only
+     * one key is changing it's content. Any changes that affect the position or size of the key
+     * may not be honored.
+     * @param key key in the attached {@link Keyboard}.
+     * @see #invalidateAllKeys
+     */
+    public void invalidateKey(@Nullable final Key key) {
+        if (mInvalidateAllKeys || key == null) {
+            return;
+        }
+        mInvalidatedKeys.add(key);
+        final int x = key.getX() + getPaddingLeft();
+        final int y = key.getY() + getPaddingTop();
+        invalidate(x, y, x + key.getWidth(), y + key.getHeight());
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        freeOffscreenBuffer();
+    }
+
+    public void deallocateMemory() {
+        freeOffscreenBuffer();
+    }
 }
-
-
