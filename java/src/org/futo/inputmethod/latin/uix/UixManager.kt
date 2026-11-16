@@ -1,4 +1,4 @@
-package org.futo.inputmethod.latin.uix
+package org.futo.inputmethod.latin.uixx
 
 import android.content.ClipDescription
 import android.content.Context
