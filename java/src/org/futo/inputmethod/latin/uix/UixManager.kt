@@ -1497,6 +1497,10 @@ fun startFlickTypingSettingsObserver() {
 
         val predictions = LinkedHashMap<Int, String>()
         for (index in 0 until suggestedWords.size()) {
+            // Keep the five highest-ranked distinct next-letter choices. SuggestedWords is
+            // already ranked using the active language model and its preceding-word context.
+            if (predictions.size >= MAX_FLICK_SUGGESTIONS) break
+
             val candidate = suggestedWords.getWord(index)
             if (candidate.length <= typedWord.length ||
                 !candidate.regionMatches(0, typedWord, 0, typedWord.length, ignoreCase = true)
@@ -1515,6 +1519,10 @@ fun startFlickTypingSettingsObserver() {
             }
         }
         return predictions
+    }
+
+    private companion object {
+        const val MAX_FLICK_SUGGESTIONS = 5
     }
 
     fun setSuggestions(suggestedWords: SuggestedWords?, rtlSubtype: Boolean, cfg: ExpandableSuggestionBarConfiguration) {
