@@ -137,6 +137,7 @@ public class KeyboardView extends View {
     private Map<Integer, String> mFlickSuggestions = new HashMap<>();
     // Prefix currently typed by the user; it stays at full hint-color opacity.
     private String mFlickTypedWord = "";
+    private static final int MAX_FLICK_PREDICTIONS = 4;
     private final Map<Key, FlickPredictionInfo> mFlickPredictionRenderInfo = new HashMap<>();
 
     private static final class FlickPredictionInfo {
@@ -602,7 +603,8 @@ public class KeyboardView extends View {
 
         // Greedy longest-first selection prevents long words such as
         // "tremendous" from being squeezed between short neighboring words.
-        while (!candidates.isEmpty()) {
+        while (!candidates.isEmpty()
+                && mFlickPredictionRenderInfo.size() < MAX_FLICK_PREDICTIONS) {
             Key bestKey = null;
             float bestWidth = -1.0f;
 
