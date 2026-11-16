@@ -7,6 +7,7 @@ on:
       - main
       - master
       - flick-font-size-test
+      - newww
     paths:
       - "java/src/**"
       - "java/res/values/strings.xml"
