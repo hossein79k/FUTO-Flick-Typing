@@ -450,7 +450,7 @@ public class KeyboardView extends View {
 
     /**
      * Creates a single-line, bidi-aware layout for a flick suggestion.
-     * A ForegroundColorSpan softens only the untyped suffix without splitting
+     * A ForegroundColorSpan makes the untyped suffix noticeably dimmer without splitting
      * Arabic/Persian text into separate drawText calls, preserving contextual shaping.
      */
     @Nullable
@@ -470,11 +470,11 @@ public class KeyboardView extends View {
         final SpannableString styledPrediction = new SpannableString(prediction);
         final int typedPrefixLength = getMatchingFlickPrefixLength(prediction);
         if (typedPrefixLength > 0 && typedPrefixLength < prediction.length()) {
-            // Keep the typed part at the theme's full hint color, and soften only
+            // Keep the typed part at the theme's full hint color, and dim only
             // the remaining letters. Reducing alpha preserves contrast in both
             // dark and light keyboard themes without changing the typeface.
             final int hintColor = configuration.getHintColor();
-            final int suffixAlpha = Color.alpha(hintColor) * 190 / 255;
+            final int suffixAlpha = Color.alpha(hintColor) * 135 / 255;
             final int suffixColor = Color.argb(
                     suffixAlpha,
                     Color.red(hintColor),
